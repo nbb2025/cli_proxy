@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLI Proxy 状态监控</title>
+    <!-- Element Plus CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <!-- 自定义样式 -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="app" v-cloak>
+        <div class="container">
+            <header>
+                <h1>CLI Proxy 状态监控</h1>
+                <div class="refresh-info">
+                    <span>{{ lastUpdate }}</span>
+                    <el-button type="primary" @click="refreshData" :loading="loading" size="small">
+                        刷新
+                    </el-button>
+                </div>
+            </header>
+
+            <main>
+                <!-- 服务状态卡片 -->
+                <section class="services-section">
+                    <h2>代理服务状态</h2>
+                    <div class="services-grid">
+                        <div class="service-card">
+                            <h3>Claude 服务</h3>
+                            <div class="status-indicator">
+                                <span :class="['status-dot', services.claude.running ? 'running' : 'stopped']"></span>
+                                <span class="status-text">{{ services.claude.running ? '运行中' : '已停止' }}</span>
+                            </div>
+                            <div class="service-info">
+                                <p><strong>PID:</strong> <span>{{ services.claude.pid || '-' }}</span></p>
+                                <p><strong>转发目标:</strong> 
+                                    <el-select 
+                                        v-model="services.claude.config" 
+                                        placeholder="选择配置..."
+                                        @change="switchConfig('claude', $event)"
+                                        size="small"
+                                        style="width: 150px;">
+                                        <el-option 
+                                            v-for="config in claudeConfigs" 
+                                            :key="config" 
+                                            :label="config" 
+                                            :value="config">
+                                        </el-option>
+                                    </el-select>
+                                </p>
+                                <p><strong>端口:</strong> 3210</p>
+                            </div>
+                        </div>
+
+                        <div class="service-card">
+                            <h3>Codex 服务</h3>
+                            <div class="status-indicator">
+                                <span :class="['status-dot', services.codex.running ? 'running' : 'stopped']"></span>
+                                <span class="status-text">{{ services.codex.running ? '运行中' : '已停止' }}</span>
+                            </div>
+                            <div class="service-info">
+                                <p><strong>PID:</strong> <span>{{ services.codex.pid || '-' }}</span></p>
+                                <p><strong>转发目标:</strong> 
+                                    <el-select 
+                                        v-model="services.codex.config" 
+                                        placeholder="选择配置..."
+                                        @change="switchConfig('codex', $event)"
+                                        size="small"
+                                        style="width: 150px;">
+                                        <el-option 
+                                            v-for="config in codexConfigs" 
+                                            :key="config" 
+                                            :label="config" 
+                                            :value="config">
+                                        </el-option>
+                                    </el-select>
+                                </p>
+                                <p><strong>端口:</strong> 3211</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 统计信息 -->
+                <section class="stats-section">
+                    <h2>系统统计</h2>
+                    <div class="stats-grid">
+                        <div class="stat-card compact">
+                            <h4>总请求数</h4>
+                            <div class="stat-value">{{ stats.requestCount || 0 }}</div>
+                        </div>
+                        <div class="stat-card clickable" @click="openConfigDrawer">
+                            <h4>配置数量</h4>
+                            <div class="stat-value">{{ stats.configCount || 0 }}</div>
+                            <div class="stat-hint">点击编辑配置</div>
+                        </div>
+                        <div class="stat-card clickable" @click="openFilterDrawer">
+                            <h4>请求过滤</h4>
+                            <div class="stat-value">{{ stats.filterCount || 0 }}</div>
+                            <div class="stat-hint">点击编辑过滤</div>
+                        </div>
+                        <div class="stat-card clickable usage-card" @click="openUsageDrawer">
+                            <h4>Token 使用</h4>
+                            <div class="stat-value">{{ usageSummary.formattedTotals.total || '0' }}</div>
+                            <div class="stat-hint">点击查看明细</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 请求日志 -->
+                <section class="logs-section">
+                    <div class="logs-header">
+                        <h2>最近请求日志</h2>
+                        <div class="logs-actions">
+                            <el-button type="success" @click="viewAllLogs" size="small">
+                                查看所有日志
+                            </el-button>
+                            <el-button type="danger" @click="clearAllLogs" size="small">
+                                清空日志
+                            </el-button>
+                        </div>
+                    </div>
+                    <div class="logs-container">
+                        <div class="logs-table">
+                            <div class="log-header">
+                                <span>时间</span>
+                                <span>服务</span>
+                                <span>方法</span>
+                                <span>路径</span>
+                                <span>状态</span>
+                                <span>耗时</span>
+                                <span>Usage</span>
+                                <span>操作</span>
+                            </div>
+                            <div class="log-entries" v-loading="logsLoading">
+                                <div v-if="logs.length === 0" class="log-entry loading">
+                                    <span>{{ logsLoading ? '加载日志数据...' : '暂无日志数据' }}</span>
+                                </div>
+                                <div v-else v-for="log in logs" :key="log.id || log.timestamp" class="log-entry">
+                                    <span>{{ formatTimestamp(log.timestamp) }}</span>
+                                    <span>{{ log.service || '-' }}</span>
+                                    <span>{{ log.method || '-' }}</span>
+                                    <span :title="log.path">{{ truncatePath(log.path || '-') }}</span>
+                                    <span>
+                                        <el-tag 
+                                            :type="getStatusTagType(log.status_code)"
+                                            size="small">
+                                            {{ log.status_code || '-' }}
+                                        </el-tag>
+                                    </span>
+                                    <span>{{ log.duration_ms ? `${log.duration_ms}ms` : '-' }}</span>
+                                    <span class="usage-cell" :title="formatUsageSummary(log.usage, log.service)">
+                                        {{ formatUsageSummary(log.usage, log.service) }}
+                                    </span>
+                                    <span>
+                                        <el-button 
+                                            type="text" 
+                                            size="small"
+                                            @click="showLogDetail(log)">
+                                            详情
+                                        </el-button>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <!-- 配置编辑抽屉 -->
+        <el-drawer 
+            v-model="configDrawerVisible" 
+            title="配置文件编辑" 
+            size="600px"
+            class="config-drawer">
+            
+            <div class="config-tabs">
+                <el-button 
+                    :type="activeConfigTab === 'claude' ? 'primary' : ''"
+                    @click="activeConfigTab = 'claude'"
+                    size="small">
+                    Claude 配置
+                </el-button>
+                <el-button 
+                    :type="activeConfigTab === 'codex' ? 'primary' : ''"
+                    @click="activeConfigTab = 'codex'"
+                    size="small">
+                    Codex 配置
+                </el-button>
+            </div>
+            
+            <div class="config-content">
+                <div v-show="activeConfigTab === 'claude'" class="tab-panel">
+                    <div class="config-editor">
+                        <label>claude.json 配置内容:</label>
+                        <el-input
+                            v-model="configContents.claude"
+                            type="textarea"
+                            :rows="20"
+                            placeholder="加载中..."
+                            style="font-family: monospace;">
+                        </el-input>
+                        <div class="config-help">
+                            <p><strong>示例结构:</strong></p>
+                            <code>{
+  "自定义站点名称": {
+    "base_url": "目标站点地址",
+    "auth_token": "令牌",
+    "api_key": "有些站点使用x-api-key传递就放这里",
+    "active": false
+  }
+}</code>
+                        </div>
+                        <div class="editor-actions">
+                            <el-button 
+                                type="primary" 
+                                @click="saveConfig('claude')" 
+                                :loading="configSaving"
+                                size="small">
+                                保存 Claude 配置
+                            </el-button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div v-show="activeConfigTab === 'codex'" class="tab-panel">
+                    <div class="config-editor">
+                        <label>codex.json 配置内容:</label>
+                        <el-input
+                            v-model="configContents.codex"
+                            type="textarea"
+                            :rows="20"
+                            placeholder="加载中..."
+                            style="font-family: monospace;">
+                        </el-input>
+                        <div class="config-help">
+                            <p><strong>示例结构:</strong></p>
+                            <code>{
+  "自定义站点名称": {
+    "base_url": "目标站点地址",
+    "auth_token": "令牌",
+    "api_key": "有些站点使用x-api-key传递就放这里",
+    "active": false
+  }
+}</code>
+                        </div>
+                        <div class="editor-actions">
+                            <el-button 
+                                type="primary" 
+                                @click="saveConfig('codex')" 
+                                :loading="configSaving"
+                                size="small">
+                                保存 Codex 配置
+                            </el-button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </el-drawer>
+
+        <!-- 过滤器编辑抽屉 -->
+        <el-drawer 
+            v-model="filterDrawerVisible" 
+            title="请求过滤器编辑" 
+            size="700px"
+            class="filter-drawer">
+            
+            <div class="config-content">
+                <div class="tab-panel active">
+                    <div class="filter-editor">
+                        <label>过滤规则配置:</label>
+                        <div class="filter-rules-container">
+                            <div v-for="(rule, index) in filterRules" :key="index" class="filter-rule-row">
+                                <el-input
+                                    v-model="rule.source"
+                                    placeholder="要匹配的文本"
+                                    size="small"
+                                    style="width: 180px">
+                                </el-input>
+                                <el-select 
+                                    v-model="rule.op" 
+                                    size="small"
+                                    style="width: 100px; margin: 0 10px">
+                                    <el-option label="替换" value="replace"></el-option>
+                                    <el-option label="删除" value="remove"></el-option>
+                                </el-select>
+                                <el-input
+                                    v-model="rule.target"
+                                    placeholder="替换后的文本"
+                                    :disabled="rule.op === 'remove'"
+                                    size="small"
+                                    style="width: 180px">
+                                </el-input>
+                                <el-button 
+                                    @click="removeFilterRule(index)" 
+                                    type="danger" 
+                                    icon="el-icon-delete" 
+                                    circle
+                                    size="small">
+                                </el-button>
+                            </div>
+                            <el-button 
+                                @click="addFilterRule" 
+                                type="success" 
+                                size="small"
+                                icon="el-icon-plus"
+                                style="margin-top: 10px">
+                                添加规则
+                            </el-button>
+                        </div>
+                        <div class="filter-help">
+                            <p><strong>使用说明:</strong></p>
+                            <p>• 每行一个规则，按顺序执行</p>
+                            <p>• 选择"替换"时，将source替换为target</p>
+                            <p>• 选择"删除"时，将删除source匹配的内容</p>
+                            <p>• 支持正则表达式</p>
+                        </div>
+                        <div class="editor-actions">
+                            <el-button 
+                                type="primary" 
+                                @click="saveFilter" 
+                                :loading="filterSaving"
+                                size="small">
+                                保存过滤规则
+                            </el-button>
+                            <el-button 
+                                @click="loadFilter" 
+                                size="small">
+                                重新加载
+                            </el-button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </el-drawer>
+
+        <!-- 日志详情侧边栏 -->
+        <el-drawer
+            v-model="logDetailVisible"
+            title="请求日志详情"
+            size="900px"
+            class="log-detail-drawer">
+            
+            <div v-if="selectedLog" class="log-detail-content">
+                <!-- Tab切换导航 -->
+                <el-tabs v-model="activeLogTab" class="log-detail-tabs">
+                    <!-- 基本信息Tab -->
+                    <el-tab-pane label="基础" name="basic">
+                        <div class="detail-section">
+                            <div class="detail-basic-list">
+                                <div class="detail-row">
+                                    <span class="label">时间:</span>
+                                    <span class="value">{{ selectedLog.timestamp || '-' }}</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">服务:</span>
+                                    <span class="value">{{ selectedLog.service || '-' }}</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">渠道:</span>
+                                    <span class="value">{{ formatChannelName(selectedLog.channel) }}</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">方法:</span>
+                                    <span class="value">{{ selectedLog.method || '-' }}</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">状态码:</span>
+                                    <span class="value">
+                                        <el-tag :type="getStatusTagType(selectedLog.status_code)">
+                                            {{ selectedLog.status_code || '-' }}
+                                        </el-tag>
+                                    </span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">耗时:</span>
+                                    <span class="value">{{ selectedLog.duration_ms ? `${selectedLog.duration_ms}ms` : '-' }}</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">请求路径:</span>
+                                    <span class="value">
+                                        <code class="path-code">{{ selectedLog.path || '-' }}</code>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="detail-section usage-section">
+                            <h4>Usage 指标</h4>
+                            <div class="usage-grid">
+                                <div class="usage-item" v-for="(label, key) in usageMetricLabels" :key="key">
+                                    <span class="usage-label">{{ label }}:</span>
+                                    <span class="usage-value">{{ formatUsageValue(selectedLog.usage?.metrics?.[key] || 0) }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </el-tab-pane>
+
+                    <!-- 转换前请求头Tab -->
+                    <el-tab-pane label="headers" name="headers_before">
+                        <div class="detail-section">
+                            <div class="headers-content-flat">
+                                <div v-if="!selectedLog.original_headers || Object.keys(selectedLog.original_headers).length === 0" class="no-headers">
+                                    暂无请求头信息
+                                </div>
+                                <div v-else class="headers-list-flat">
+                                    <div
+                                        v-for="key in getSortedHeaderKeys(selectedLog.original_headers)"
+                                        :key="key"
+                                        class="header-item-flat">
+                                        <span class="header-key-flat">{{ key }}:</span>
+                                        <span class="header-value-flat">{{ selectedLog.original_headers[key] }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </el-tab-pane>
+
+                    <!-- 转换后请求头Tab -->
+                    <el-tab-pane label="headers(后)" name="headers_after">
+                        <div class="detail-section">
+                            <div class="headers-content-flat">
+                                <div v-if="!selectedLog.target_headers || Object.keys(selectedLog.target_headers).length === 0" class="no-headers">
+                                    暂无请求头信息
+                                </div>
+                                <div v-else class="headers-list-flat">
+                                    <div
+                                        v-for="key in getSortedHeaderKeys(selectedLog.target_headers)"
+                                        :key="key"
+                                        class="header-item-flat">
+                                        <span class="header-key-flat">{{ key }}:</span>
+                                        <span class="header-value-flat">{{ selectedLog.target_headers[key] }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </el-tab-pane>
+
+                    <!-- 转换前请求体Tab -->
+                    <el-tab-pane label="body" name="body_before">
+                        <div v-if="!selectedLog.original_body" class="no-body">
+                            暂无请求体内容
+                        </div>
+                        <div v-else class="request-body-fullscreen-container">
+                            <div class="body-actions">
+                                <el-button 
+                                    size="small" 
+                                    @click="copyToClipboard(decodedOriginalRequestBody)">
+                                    复制内容
+                                </el-button>
+                                <el-button 
+                                    size="small" 
+                                    @click="formatOriginalRequestBody">
+                                    格式化JSON
+                                </el-button>
+                            </div>
+                            <el-input
+                                v-model="decodedOriginalRequestBody"
+                                type="textarea"
+                                readonly
+                                class="request-body-textarea-fullscreen">
+                            </el-input>
+                        </div>
+                    </el-tab-pane>
+
+                    <!-- 转换后请求体Tab -->
+                    <el-tab-pane label="body(后)" name="body_after">
+                        <div v-if="!selectedLog.filtered_body" class="no-body">
+                            暂无请求体内容
+                        </div>
+                        <div v-else class="request-body-fullscreen-container">
+                            <div class="body-actions">
+                                <el-button 
+                                    size="small" 
+                                    @click="copyToClipboard(decodedRequestBody)">
+                                    复制内容
+                                </el-button>
+                                <el-button 
+                                    size="small" 
+                                    @click="formatFilteredRequestBody">
+                                    格式化JSON
+                                </el-button>
+                            </div>
+                            <el-input
+                                v-model="decodedRequestBody"
+                                type="textarea"
+                                readonly
+                                class="request-body-textarea-fullscreen">
+                            </el-input>
+                        </div>
+                    </el-tab-pane>
+
+                    <!-- 响应数据Tab -->
+                    <el-tab-pane label="响应" name="response">
+                        <div v-if="!selectedLog.response_content" class="no-body">
+                            暂无响应内容
+                        </div>
+                        <div v-else class="request-body-fullscreen-container">
+                            <div class="body-actions">
+                                <el-button
+                                    size="small"
+                                    @click="copyToClipboard(decodedResponseContent)">
+                                    复制内容
+                                </el-button>
+                                <el-button
+                                    size="small"
+                                    @click="formatResponseContent">
+                                    格式化JSON
+                                </el-button>
+                            </div>
+                            <el-input
+                                v-model="decodedResponseContent"
+                                type="textarea"
+                                readonly
+                                class="request-body-textarea-fullscreen">
+                            </el-input>
+                        </div>
+                    </el-tab-pane>
+                </el-tabs>
+            </div>
+        </el-drawer>
+
+        <!-- 所有日志侧边栏 -->
+        <el-drawer 
+            v-model="allLogsVisible" 
+            title="所有请求日志" 
+            size="85%"
+            class="all-logs-drawer">
+            
+            <div class="all-logs-content" v-loading="allLogsLoading">
+                <div class="all-logs-stats">
+                    <span>共 {{ allLogs.length }} 条日志记录</span>
+                    <div class="stats-actions">
+                        <el-button 
+                            type="primary" 
+                            size="small" 
+                            @click="refreshAllLogs"
+                            :loading="allLogsLoading">
+                            刷新
+                        </el-button>
+                        <el-button 
+                            type="danger" 
+                            size="small" 
+                            @click="clearAllLogs">
+                            清空日志
+                        </el-button>
+                    </div>
+                </div>
+                
+                    <div class="all-logs-table">
+                        <div class="log-header">
+                            <span>时间</span>
+                            <span>服务</span>
+                            <span>方法</span>
+                            <span>路径</span>
+                            <span>状态</span>
+                            <span>耗时</span>
+                            <span>Usage</span>
+                            <span>操作</span>
+                        </div>
+                        <div class="all-log-entries">
+                            <div v-if="allLogs.length === 0" class="log-entry loading">
+                                <span>{{ allLogsLoading ? '加载日志数据...' : '暂无日志数据' }}</span>
+                            </div>
+                            <div v-else v-for="log in allLogs" :key="log.id || log.timestamp" class="log-entry">
+                                <span>{{ formatTimestamp(log.timestamp) }}</span>
+                                <span>{{ log.service || '-' }}</span>
+                                <span>{{ log.method || '-' }}</span>
+                                <span :title="log.path">{{ truncatePath(log.path || '-') }}</span>
+                                <span>
+                                    <el-tag 
+                                        :type="getStatusTagType(log.status_code)"
+                                        size="small">
+                                        {{ log.status_code || '-' }}
+                                    </el-tag>
+                                </span>
+                                <span>{{ log.duration_ms ? `${log.duration_ms}ms` : '-' }}</span>
+                                <span class="usage-cell" :title="formatUsageSummary(log.usage, log.service)">
+                                    {{ formatUsageSummary(log.usage, log.service) }}
+                                </span>
+                                <span>
+                                    <el-button 
+                                        type="primary" 
+                                        size="small"
+                                        link
+                                        @click="showLogDetail(log)">
+                                        详情
+                                    </el-button>
+                                </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </el-drawer>
+
+        <!-- Usage详情抽屉 -->
+        <el-drawer 
+            v-model="usageDrawerVisible"
+            title="Token 使用详情"
+            size="1000px"
+            class="usage-drawer">
+            <div class="usage-drawer-content" v-loading="usageDetailsLoading">
+                <div class="usage-summary-card">
+                    <h3>总体汇总</h3>
+                    <div class="usage-summary-grid">
+                        <div class="usage-summary-item" v-for="key in metricKeys" :key="key">
+                            <span class="usage-label">{{ usageMetricLabels[key] }}:</span>
+                            <span class="usage-value">{{ getUsageFormattedValue(usageDetails.totals, key) }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="usage-service-section" v-for="(serviceData, serviceName) in usageDetails.services" :key="serviceName">
+                    <div class="usage-service-header">
+                        <h3>{{ serviceName }} CLI</h3>
+                        <span class="usage-total">总计 {{ getUsageFormattedValue(serviceData.overall, 'total') }}</span>
+                    </div>
+                    <div class="usage-summary-grid service-overall">
+                        <div class="usage-summary-item" v-for="key in metricKeys" :key="key">
+                            <span class="usage-label">{{ usageMetricLabels[key] }}:</span>
+                            <span class="usage-value">{{ getUsageFormattedValue(serviceData.overall, key) }}</span>
+                        </div>
+                    </div>
+                    <div v-if="Object.keys(serviceData.channels).length" class="usage-channel-table">
+                        <div class="usage-channel-header">
+                            <span>目标站点</span>
+                            <span v-for="key in metricKeys" :key="key">{{ usageMetricLabels[key] }}</span>
+                        </div>
+                        <div class="usage-channel-row" v-for="(channelData, channelName) in serviceData.channels" :key="channelName">
+                            <span class="channel-name">{{ formatChannelName(channelName) }}</span>
+                            <span v-for="key in metricKeys" :key="key">{{ getUsageFormattedValue(channelData, key) }}</span>
+                        </div>
+                    </div>
+                    <div v-else class="usage-channel-empty">暂无渠道数据</div>
+                </div>
+
+                <div class="usage-drawer-actions">
+                    <el-button type="primary" size="small" @click="loadUsageDetails" :loading="usageDetailsLoading">刷新</el-button>
+                    <el-button type="danger" size="small" @click="clearUsageData">清空Token</el-button>
+                    <el-button size="small" @click="closeUsageDrawer">关闭</el-button>
+                </div>
+            </div>
+        </el-drawer>
+    </div>
+
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- Element Plus -->
+    <script src="https://unpkg.com/element-plus/dist/index.full.js"></script>
+    <!-- 应用逻辑 -->
+    <script src="/static/app.js"></script>
+    
+    <script>
+    // 确保库加载完成后再初始化
+    window.addEventListener('DOMContentLoaded', function() {
+        // 检查Vue和Element Plus是否加载成功
+        if (typeof Vue === 'undefined') {
+            console.error('Vue未加载成功');
+            document.getElementById('app').innerHTML = '<h1>Vue加载失败，请检查网络连接</h1>';
+            return;
+        }
+        
+        if (typeof ElementPlus === 'undefined') {
+            console.error('Element Plus未加载成功');
+            document.getElementById('app').innerHTML = '<h1>Element Plus加载失败，请检查网络连接</h1>';
+            return;
+        }
+        
+        console.log('Vue和Element Plus已加载，app.js应该会自动初始化应用');
+    });
+    </script>
+</body>
+</html>
