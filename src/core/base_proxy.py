@@ -22,6 +22,7 @@ from ..utils.usage_parser import (
     extract_usage_from_response,
     normalize_usage_record,
 )
+from ..utils.platform_helper import create_detached_process
 
 class BaseProxyService(ABC):
     """基础代理服务类"""
@@ -450,16 +451,14 @@ class BaseServiceController(ABC):
             '--timeout-keep-alive', '60',
             '--limit-concurrency', '500',
         ]
-        log_handle = open(self.log_file, 'a')
-        process = subprocess.Popen(
-            uvicorn_cmd,
-            cwd=str(project_root),
-            env=env,
-            stdout=log_handle,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL
-        )
-        log_handle.close()
+        with open(self.log_file, 'a') as log_handle:
+            # 在独立进程组中运行，避免控制台信号终止子进程
+            process = create_detached_process(
+                uvicorn_cmd,
+                log_handle,
+                cwd=str(project_root),
+                env=env,
+            )
 
         # 保存PID
         self.pid_file.write_text(str(process.pid))

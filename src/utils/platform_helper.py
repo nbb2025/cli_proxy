@@ -58,28 +58,30 @@ def kill_process(pid, force=False):
     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
         return True  # 进程已经不存在
 
-def create_detached_process(cmd, log_file):
+def create_detached_process(cmd, log_file, *, cwd=None, env=None):
     """跨平台创建分离进程"""
     try:
         if sys.platform == "win32":
-            # Windows下的分离进程 - 隐藏窗口
             proc = subprocess.Popen(
                 cmd,
+                cwd=cwd,
+                env=env,
                 stdout=log_file,
                 stderr=log_file,
                 stdin=subprocess.DEVNULL,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
             )
         else:
-            # Unix/Linux下的分离进程
             proc = subprocess.Popen(
                 cmd,
+                cwd=cwd,
+                env=env,
                 stdout=log_file,
                 stderr=log_file,
                 stdin=subprocess.DEVNULL,
                 start_new_session=True
             )
-        
+
         return proc
     except Exception as e:
         raise RuntimeError(f"创建分离进程失败: {e}")
