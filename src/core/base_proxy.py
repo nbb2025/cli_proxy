@@ -351,7 +351,7 @@ class BaseProxyService(ABC):
             with open(self.log_file, 'a') as log_file:
                 uvicorn_cmd = [
                     sys.executable, '-m', 'uvicorn',
-                    f'cli_proxy.{self.service_name}.proxy:app',
+                    f'src.{self.service_name}.proxy:app',
                     '--host', '0.0.0.0',
                     '--port', str(self.port),
                     '--http', 'h11',
@@ -382,7 +382,7 @@ class BaseServiceController(ABC):
             service_name: 服务名称
             port: 服务端口
             config_manager: 配置管理器实例
-            proxy_module_path: 代理模块路径 (如 'cli_proxy.claude.proxy')
+            proxy_module_path: 代理模块路径 (如 'src.claude.proxy')
         """
         self.service_name = service_name
         self.port = port

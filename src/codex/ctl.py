@@ -14,7 +14,7 @@ class CodexController(BaseServiceController):
             service_name='codex',
             port=3211,
             config_manager=codex_config_manager,
-            proxy_module_path='cli_proxy.codex.proxy'
+            proxy_module_path='src.codex.proxy'
         )
 
 # 创建全局实例

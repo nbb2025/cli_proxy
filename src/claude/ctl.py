@@ -14,7 +14,7 @@ class ClaudeController(BaseServiceController):
             service_name='claude',
             port=3210,
             config_manager=claude_config_manager,
-            proxy_module_path='cli_proxy.claude.proxy'
+            proxy_module_path='src.claude.proxy'
         )
         # 为了兼容性，设置旧的PID文件名
         self.pid_file = self.config_dir / 'claude_code_proxy.pid'

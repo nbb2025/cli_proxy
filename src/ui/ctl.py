@@ -52,7 +52,7 @@ def start_daemon(port=DEFAULT_PORT):
                 '--host=0.0.0.0',
                 f'--port={port}',
                 '--threads=4',
-                'cli_proxy.ui.ui_server:app'
+                'src.ui.ui_server:app'
             ]
         else:
             # Unix/Linux 使用 gunicorn
@@ -60,7 +60,7 @@ def start_daemon(port=DEFAULT_PORT):
                 sys.executable, '-m', 'gunicorn',
                 '-w', '2',
                 '-b', f'0.0.0.0:{port}',
-                'cli_proxy.ui.ui_server:app'
+                'src.ui.ui_server:app'
             ]
 
         with open(LOG_FILE, 'a') as log:
