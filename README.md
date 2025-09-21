@@ -4,6 +4,13 @@
 
 CLP 是一个本地CLI代理工具，用于管理和代理AI服务（如Claude和Codex）的API请求。该工具提供统一的命令行界面来启动、停止和管理多个AI服务代理，支持多配置管理和Web UI监控。
 
+## 界面预览
+
+![首页概览](assets/index.png)
+![配管理界面](assets/config.png)
+![请求过滤配置](assets/filter.png)
+![Token 使用统计](assets/token_use.png)
+
 ## 主要功能
 
 ### 🚀 核心功能
