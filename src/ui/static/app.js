@@ -236,6 +236,22 @@ const app = createApp({
             return name === 'unknown' ? '未标记' : name;
         };
 
+        // 格式化服务和渠道组合显示（换行形式）
+        const formatServiceWithChannel = (service, channel) => {
+            const serviceName = service || '-';
+            if (!channel || channel === 'unknown') {
+                return serviceName;
+            }
+            return `${serviceName}\n[${channel}]`;
+        };
+
+        // 格式化方法和URL的组合
+        const formatMethodWithURL = (method, url) => {
+            const methodName = method || 'GET';
+            const urlPath = url || '-';
+            return `[${methodName}] ${urlPath}`;
+        };
+
         const loadUsageDetails = async () => {
             usageDetailsLoading.value = true;
             try {
@@ -679,23 +695,25 @@ const app = createApp({
         // 工具方法
         const formatTimestamp = (timestamp) => {
             if (!timestamp) return '-';
-            
+
             try {
                 const date = new Date(timestamp);
-                return date.toLocaleTimeString('zh-CN', { 
-                    hour12: false,
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit'
-                });
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                const seconds = String(date.getSeconds()).padStart(2, '0');
+
+                return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
             } catch (e) {
                 return timestamp;
             }
         };
         
         const truncatePath = (path) => {
-            if (!path || path.length <= 24) return path;
-            return path.substring(0, 21) + '...';
+            // 不截断URL，显示完整内容
+            return path || '-';
         };
         
         const getStatusTagType = (statusCode) => {
@@ -919,6 +937,8 @@ const app = createApp({
             formatUsageSummary,
             getUsageFormattedValue,
             formatChannelName,
+            formatServiceWithChannel,
+            formatMethodWithURL,
             openUsageDrawer,
             closeUsageDrawer,
             clearUsageData,

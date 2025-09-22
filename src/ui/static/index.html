@@ -127,8 +127,7 @@
                             <div class="log-header">
                                 <span>时间</span>
                                 <span>服务</span>
-                                <span>方法</span>
-                                <span>路径</span>
+                                <span>URL</span>
                                 <span>状态</span>
                                 <span>耗时</span>
                                 <span>Usage</span>
@@ -140,9 +139,8 @@
                                 </div>
                                 <div v-else v-for="log in logs" :key="log.id || log.timestamp" class="log-entry">
                                     <span>{{ formatTimestamp(log.timestamp) }}</span>
-                                    <span>{{ log.service || '-' }}</span>
-                                    <span>{{ log.method || '-' }}</span>
-                                    <span :title="log.path">{{ truncatePath(log.path || '-') }}</span>
+                                    <span :title="formatChannelName(log.channel)" style="white-space: pre-line;">{{ formatServiceWithChannel(log.service, log.channel) }}</span>
+                                    <span :title="log.path">{{ formatMethodWithURL(log.method, log.path) }}</span>
                                     <span>
                                         <el-tag 
                                             :type="getStatusTagType(log.status_code)"
@@ -553,8 +551,7 @@
                         <div class="log-header">
                             <span>时间</span>
                             <span>服务</span>
-                            <span>方法</span>
-                            <span>路径</span>
+                            <span>URL</span>
                             <span>状态</span>
                             <span>耗时</span>
                             <span>Usage</span>
@@ -566,9 +563,8 @@
                             </div>
                             <div v-else v-for="log in allLogs" :key="log.id || log.timestamp" class="log-entry">
                                 <span>{{ formatTimestamp(log.timestamp) }}</span>
-                                <span>{{ log.service || '-' }}</span>
-                                <span>{{ log.method || '-' }}</span>
-                                <span :title="log.path">{{ truncatePath(log.path || '-') }}</span>
+                                <span :title="formatChannelName(log.channel)" style="white-space: pre-line;">{{ formatServiceWithChannel(log.service, log.channel) }}</span>
+                                <span :title="log.path">{{ formatMethodWithURL(log.method, log.path) }}</span>
                                 <span>
                                     <el-tag 
                                         :type="getStatusTagType(log.status_code)"

@@ -122,6 +122,7 @@ class BaseProxyService(ABC):
         usage: Optional[Dict[str, Any]] = None,
         response_truncated: bool = False,
         total_response_bytes: Optional[int] = None,
+        target_url: Optional[str] = None,
     ):
         """记录请求日志到jsonl文件（异步调度）"""
 
@@ -131,7 +132,7 @@ class BaseProxyService(ABC):
                     'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
                     'service': self.service_name,
                     'method': method,
-                    'path': path,
+                    'path': target_url if target_url else path,
                     'status_code': status_code,
                     'duration_ms': duration_ms,
                     'target_headers': target_headers or {}
@@ -225,6 +226,7 @@ class BaseProxyService(ABC):
         active_config_name: Optional[str] = None
         target_headers: Optional[Dict[str, str]] = None
         filtered_body: Optional[bytes] = None
+        target_url: Optional[str] = None
 
         try:
             target_url, target_headers, target_body, active_config_name = self.build_target_param(path, request, original_body)
@@ -301,6 +303,7 @@ class BaseProxyService(ABC):
                         channel=active_config_name,
                         response_truncated=response_truncated,
                         total_response_bytes=total_response_bytes,
+                        target_url=target_url,
                     )
 
             return StreamingResponse(
@@ -334,7 +337,8 @@ class BaseProxyService(ABC):
                 filtered_body=filtered_body,
                 original_headers=original_headers,
                 original_body=original_body,
-                channel=active_config_name
+                channel=active_config_name,
+                target_url=target_url
             )
 
             return JSONResponse(response_data, status_code=status_code)
