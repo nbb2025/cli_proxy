@@ -110,6 +110,16 @@ const app = createApp({
             error_message: null
         });
 
+        // 新站点测试结果
+        const newSiteTestResult = reactive({
+            claude: null,
+            codex: null
+        });
+
+        // 测试响应数据弹窗
+        const testResponseDialogVisible = ref(false);
+        const testResponseData = ref('');
+
         // 同步状态控制，防止循环调用
         const syncInProgress = ref(false);
         const selectedLog = ref(null);
@@ -296,10 +306,10 @@ const app = createApp({
         const getModelOptions = (service) => {
             if (service === 'claude') {
                 return [
-                    { label: 'claude-3-5-haiku-20241022', value: 'claude-3-5-haiku-20241022' },
-                    { label: 'claude-sonnet-4-20250514', value: 'claude-sonnet-4-20250514' },
-                    { label: 'claude-opus-4-20250514', value: 'claude-opus-4-20250514' },
-                    { label: 'claude-opus-4-1-20250805', value: 'claude-opus-4-1-20250805' }
+                    { label: 'claude-sonnet-4', value: 'claude-sonnet-4-20250514' },
+                    { label: 'claude-opus-4-1', value: 'claude-opus-4-1-20250805' },
+                    { label: 'claude-opus-4', value: 'claude-opus-4-20250514' },
+                    { label: 'claude-3-5-haiku', value: 'claude-3-5-haiku-20241022' }
                 ];
             } else if (service === 'codex') {
                 return [
@@ -338,6 +348,15 @@ const app = createApp({
             testConfig.siteIndex = siteIndex;
             testConfig.model = '';
 
+            // 重置测试结果
+            Object.assign(lastTestResult, {
+                success: false,
+                status_code: null,
+                response_text: '',
+                target_url: '',
+                error_message: null
+            });
+
             // 设置默认模型
             const options = getModelOptions(service);
             if (options.length > 0) {
@@ -346,7 +365,7 @@ const app = createApp({
 
             // 设置默认reasoning effort
             if (service === 'codex') {
-                testConfig.reasoningEffort = 'minimal';
+                testConfig.reasoningEffort = 'high';
             } else {
                 testConfig.reasoningEffort = '';
             }
@@ -372,8 +391,17 @@ const app = createApp({
                 return;
             }
 
+            // 重置测试结果
+            Object.assign(lastTestResult, {
+                success: false,
+                status_code: null,
+                response_text: '',
+                target_url: '',
+                error_message: null
+            });
+
             testingConnection.value = true;
-            modelSelectorVisible.value = false;
+            // 不关闭弹窗，在弹窗中显示测试结果
 
             try {
                 const siteData = testConfig.siteData;
@@ -405,26 +433,42 @@ const app = createApp({
                     body: JSON.stringify(requestData)
                 });
 
-                // 更新测试结果
+                // 将测试结果存储到弹窗显示的变量中
                 Object.assign(lastTestResult, result);
-                testResultVisible.value = true;
 
-                if (result.success) {
-                    ElMessage.success('连接测试成功');
+                // 同时更新对应的测试结果存储位置
+                if (testConfig.isNewSite) {
+                    // 新站点测试结果
+                    newSiteTestResult[testConfig.service] = { ...result };
                 } else {
-                    ElMessage.error('连接测试失败');
+                    // 现有站点测试结果
+                    if (friendlyConfigs[testConfig.service] && friendlyConfigs[testConfig.service][testConfig.siteIndex]) {
+                        friendlyConfigs[testConfig.service][testConfig.siteIndex].testResult = { ...result };
+                    }
                 }
 
+                // 不再显示消息提示，结果已在弹窗中显示
+
             } catch (error) {
-                ElMessage.error('测试请求失败: ' + error.message);
-                Object.assign(lastTestResult, {
+                const errorResult = {
                     success: false,
                     status_code: null,
                     response_text: error.message,
                     target_url: '',
                     error_message: error.message
-                });
-                testResultVisible.value = true;
+                };
+
+                // 将错误结果存储到弹窗显示的变量中
+                Object.assign(lastTestResult, errorResult);
+
+                // 同时更新对应的测试结果存储位置
+                if (testConfig.isNewSite) {
+                    newSiteTestResult[testConfig.service] = { ...errorResult };
+                } else {
+                    if (friendlyConfigs[testConfig.service] && friendlyConfigs[testConfig.service][testConfig.siteIndex]) {
+                        friendlyConfigs[testConfig.service][testConfig.siteIndex].testResult = { ...errorResult };
+                    }
+                }
             } finally {
                 testingConnection.value = false;
             }
@@ -434,6 +478,32 @@ const app = createApp({
         const copyTestResult = async () => {
             try {
                 await copyToClipboard(lastTestResult.response_text);
+            } catch (error) {
+                ElMessage.error('复制失败');
+            }
+        };
+
+        // 显示测试响应数据
+        const showTestResponse = (type, service, index = null) => {
+            let responseText = '';
+            if (type === 'newSite') {
+                responseText = newSiteTestResult[service]?.response_text || '';
+            } else if (type === 'site' && index !== null) {
+                responseText = friendlyConfigs[service][index]?.testResult?.response_text || '';
+            }
+
+            if (responseText) {
+                testResponseData.value = responseText;
+                testResponseDialogVisible.value = true;
+            } else {
+                ElMessage.warning('没有响应数据');
+            }
+        };
+
+        // 复制测试响应数据
+        const copyTestResponseData = async () => {
+            try {
+                await copyToClipboard(testResponseData.value);
             } catch (error) {
                 ElMessage.error('复制失败');
             }
@@ -1294,6 +1364,9 @@ const app = createApp({
             testingConnection,
             testConfig,
             lastTestResult,
+            newSiteTestResult,
+            testResponseDialogVisible,
+            testResponseData,
 
             // 方法
             refreshData,
@@ -1343,7 +1416,11 @@ const app = createApp({
             showModelSelector,
             cancelModelSelection,
             confirmModelSelection,
-            copyTestResult
+            copyTestResult,
+            showTestResponse,
+            testResponseDialogVisible,
+            testResponseData,
+            copyTestResponseData
         };
     }
 });

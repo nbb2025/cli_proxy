@@ -1327,3 +1327,30 @@ header h1 {
         margin-bottom: 12px;
     }
 }
+
+/* 测试结果显示区域 */
+.test-result-area {
+    margin-top: 12px;
+    padding: 12px;
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.test-result-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    justify-content: flex-start;
+}
+
+.test-result-status .el-tag {
+    margin-right: 8px;
+}
+
+.test-result-status .el-button {
+    font-size: 12px;
+    padding: 4px 8px;
+    min-width: auto;
+}

@@ -935,64 +935,82 @@
                             v-model="testConfig.reasoningEffort"
                             placeholder="请选择推理等级"
                             style="width: 100%">
-                            <el-option label="minimal" value="minimal"></el-option>
                             <el-option label="high" value="high"></el-option>
                             <el-option label="medium" value="medium"></el-option>
                             <el-option label="low" value="low"></el-option>
+                            <el-option label="minimal" value="minimal"></el-option>
                         </el-select>
                     </el-form-item>
                 </el-form>
+
+                <!-- 测试结果显示区域 -->
+                <div v-if="lastTestResult.status_code !== null || testingConnection" class="test-result-section" style="margin-top: 20px; border-top: 1px solid #e4e7ed; padding-top: 16px;">
+                    <h4 style="margin: 0 0 12px 0; font-size: 14px; color: #606266;">测试结果</h4>
+
+                    <div v-if="testingConnection" style="text-align: center; padding: 20px;">
+                        <el-icon class="is-loading" style="font-size: 20px; margin-bottom: 8px;"><Loading /></el-icon>
+                        <div style="color: #909399;">正在测试连接...</div>
+                    </div>
+
+                    <div v-else-if="lastTestResult.status_code !== null">
+                        <div class="test-result-summary">
+                            <div class="result-item">
+                                <span class="result-label">测试状态:</span>
+                                <el-tag :type="lastTestResult.success ? 'success' : 'danger'" size="default">
+                                    {{ lastTestResult.success ? '连接成功' : '连接失败' }}
+                                </el-tag>
+                            </div>
+                            <div class="result-item">
+                                <span class="result-label">状态码:</span>
+                                <span class="result-value">{{ lastTestResult.status_code || '-' }}</span>
+                            </div>
+                            <div class="result-item">
+                                <span class="result-label">目标URL:</span>
+                                <span class="result-value">{{ lastTestResult.target_url || '-' }}</span>
+                            </div>
+                            <div v-if="lastTestResult.error_message" class="result-item">
+                                <span class="result-label">错误信息:</span>
+                                <span class="result-value error">{{ lastTestResult.error_message }}</span>
+                            </div>
+                        </div>
+
+                        <div v-if="lastTestResult.status_code !== null" class="test-response-section" style="margin-top: 16px;">
+                            <h5 style="margin: 0 0 8px 0; font-size: 13px; color: #606266;">响应数据:</h5>
+                            <el-input
+                                v-model="lastTestResult.response_text"
+                                type="textarea"
+                                :rows="6"
+                                readonly
+                                placeholder="无响应数据">
+                            </el-input>
+                            <div class="response-actions" style="margin-top: 8px; text-align: right;">
+                                <el-button size="small" @click="copyTestResult">复制响应</el-button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
             <template #footer>
                 <span class="dialog-footer">
-                    <el-button @click="cancelModelSelection">取消</el-button>
-                    <el-button type="primary" @click="confirmModelSelection" :loading="testingConnection">
+                    <el-button @click="cancelModelSelection">
+                        {{ lastTestResult.status_code !== null ? '关闭' : '取消' }}
+                    </el-button>
+                    <el-button
+                        v-if="lastTestResult.status_code === null"
+                        type="primary"
+                        @click="confirmModelSelection"
+                        :loading="testingConnection">
                         开始测试
+                    </el-button>
+                    <el-button
+                        v-else
+                        type="primary"
+                        @click="confirmModelSelection"
+                        :loading="testingConnection">
+                        重新测试
                     </el-button>
                 </span>
             </template>
-        </el-dialog>
-
-        <!-- 测试结果弹框 -->
-        <el-dialog
-            v-model="testResultVisible"
-            title="连接测试结果"
-            width="600px">
-            <div class="test-result-content">
-                <div class="test-result-summary">
-                    <div class="result-item">
-                        <span class="result-label">测试状态:</span>
-                        <el-tag :type="lastTestResult.success ? 'success' : 'danger'" size="default">
-                            {{ lastTestResult.success ? '连接成功' : '连接失败' }}
-                        </el-tag>
-                    </div>
-                    <div class="result-item">
-                        <span class="result-label">状态码:</span>
-                        <span class="result-value">{{ lastTestResult.status_code || '-' }}</span>
-                    </div>
-                    <div class="result-item">
-                        <span class="result-label">目标URL:</span>
-                        <span class="result-value">{{ lastTestResult.target_url || '-' }}</span>
-                    </div>
-                    <div v-if="lastTestResult.error_message" class="result-item">
-                        <span class="result-label">错误信息:</span>
-                        <span class="result-value error">{{ lastTestResult.error_message }}</span>
-                    </div>
-                </div>
-                <div class="test-response-section">
-                    <h4>响应数据:</h4>
-                    <el-input
-                        v-model="lastTestResult.response_text"
-                        type="textarea"
-                        :rows="8"
-                        readonly
-                        placeholder="无响应数据">
-                    </el-input>
-                    <div class="response-actions">
-                        <el-button size="small" @click="copyTestResult">复制响应</el-button>
-                    </div>
-                </div>
-            </div>
         </el-dialog>
 
         <!-- Usage详情抽屉 -->
