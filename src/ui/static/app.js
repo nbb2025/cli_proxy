@@ -1,5 +1,5 @@
 // Vue 3 + Element Plus CLI Proxy Monitor Application
-const { createApp, ref, reactive, onMounted, nextTick } = Vue;
+const { createApp, ref, reactive, onMounted, nextTick, watch } = Vue;
 const { ElMessage, ElMessageBox } = ElementPlus;
 
 const app = createApp({
@@ -56,6 +56,62 @@ const app = createApp({
         });
         const filterContent = ref('');
         const filterRules = ref([]);  // 过滤规则数组
+
+        // 友好表单的配置数据
+        const friendlyConfigs = reactive({
+            claude: [],  // [{ name, baseUrl, authType, authValue, active }]
+            codex: []
+        });
+
+        // 配置编辑模式 'interactive' | 'json'
+        const configEditMode = ref('interactive');
+
+        // 新增站点编辑状态
+        const editingNewSite = reactive({
+            claude: false,
+            codex: false
+        });
+
+        // 新站点数据
+        const newSiteData = reactive({
+            claude: {
+                name: '',
+                baseUrl: 'https://',
+                authType: 'auth_token',
+                authValue: '',
+                active: false
+            },
+            codex: {
+                name: '',
+                baseUrl: 'https://',
+                authType: 'auth_token',
+                authValue: '',
+                active: false
+            }
+        });
+
+        // 测试功能相关数据
+        const modelSelectorVisible = ref(false);
+        const testResultVisible = ref(false);
+        const testingConnection = ref(false);
+        const testConfig = reactive({
+            service: '',
+            siteData: null,
+            isNewSite: false,
+            siteIndex: -1,
+            model: '',
+            reasoningEffort: ''
+        });
+        const lastTestResult = reactive({
+            success: false,
+            status_code: null,
+            response_text: '',
+            target_url: '',
+            error_message: null
+        });
+
+        // 同步状态控制，防止循环调用
+        const syncInProgress = ref(false);
         const selectedLog = ref(null);
         const decodedRequestBody = ref(''); // 解码后的请求体（转换后）
         const decodedOriginalRequestBody = ref(''); // 解码后的原始请求体
@@ -234,6 +290,153 @@ const app = createApp({
         const formatChannelName = (name) => {
             if (!name) return '未知';
             return name === 'unknown' ? '未标记' : name;
+        };
+
+        // 获取模型选项
+        const getModelOptions = (service) => {
+            if (service === 'claude') {
+                return [
+                    { label: 'claude-3-5-haiku-20241022', value: 'claude-3-5-haiku-20241022' },
+                    { label: 'claude-sonnet-4-20250514', value: 'claude-sonnet-4-20250514' },
+                    { label: 'claude-opus-4-20250514', value: 'claude-opus-4-20250514' },
+                    { label: 'claude-opus-4-1-20250805', value: 'claude-opus-4-1-20250805' }
+                ];
+            } else if (service === 'codex') {
+                return [
+                    { label: 'gpt-5-codex', value: 'gpt-5-codex' },
+                    { label: 'gpt-5', value: 'gpt-5' }
+                ];
+            }
+            return [];
+        };
+
+        // 测试新增站点连接
+        const testNewSiteConnection = (service) => {
+            const siteData = newSiteData[service];
+            if (!siteData.name || !siteData.baseUrl || !siteData.authValue) {
+                ElMessage.warning('请先填写完整的站点信息');
+                return;
+            }
+            showModelSelector(service, siteData, true);
+        };
+
+        // 测试现有站点连接
+        const testSiteConnection = (service, siteIndex) => {
+            const siteData = friendlyConfigs[service][siteIndex];
+            if (!siteData.name || !siteData.baseUrl || !siteData.authValue) {
+                ElMessage.warning('站点信息不完整');
+                return;
+            }
+            showModelSelector(service, siteData, false, siteIndex);
+        };
+
+        // 显示模型选择器
+        const showModelSelector = (service, siteData, isNewSite = false, siteIndex = -1) => {
+            testConfig.service = service;
+            testConfig.siteData = siteData;
+            testConfig.isNewSite = isNewSite;
+            testConfig.siteIndex = siteIndex;
+            testConfig.model = '';
+
+            // 设置默认模型
+            const options = getModelOptions(service);
+            if (options.length > 0) {
+                testConfig.model = options[0].value;
+            }
+
+            // 设置默认reasoning effort
+            if (service === 'codex') {
+                testConfig.reasoningEffort = 'minimal';
+            } else {
+                testConfig.reasoningEffort = '';
+            }
+
+            modelSelectorVisible.value = true;
+        };
+
+        // 取消模型选择
+        const cancelModelSelection = () => {
+            modelSelectorVisible.value = false;
+            testConfig.service = '';
+            testConfig.siteData = null;
+            testConfig.isNewSite = false;
+            testConfig.siteIndex = -1;
+            testConfig.model = '';
+            testConfig.reasoningEffort = '';
+        };
+
+        // 确认模型选择并开始测试
+        const confirmModelSelection = async () => {
+            if (!testConfig.model) {
+                ElMessage.warning('请选择要测试的模型');
+                return;
+            }
+
+            testingConnection.value = true;
+            modelSelectorVisible.value = false;
+
+            try {
+                const siteData = testConfig.siteData;
+                const requestData = {
+                    service: testConfig.service,
+                    model: testConfig.model,
+                    base_url: siteData.baseUrl
+                };
+
+                // 根据认证类型设置认证信息
+                if (siteData.authType === 'auth_token') {
+                    requestData.auth_token = siteData.authValue;
+                } else {
+                    requestData.api_key = siteData.authValue;
+                }
+
+                // 如果是codex且设置了reasoning effort，添加扩展参数
+                if (testConfig.service === 'codex' && testConfig.reasoningEffort) {
+                    requestData.extra_params = {
+                        reasoning_effort: testConfig.reasoningEffort
+                    };
+                }
+
+                const result = await fetchWithErrorHandling('/api/test-connection', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                // 更新测试结果
+                Object.assign(lastTestResult, result);
+                testResultVisible.value = true;
+
+                if (result.success) {
+                    ElMessage.success('连接测试成功');
+                } else {
+                    ElMessage.error('连接测试失败');
+                }
+
+            } catch (error) {
+                ElMessage.error('测试请求失败: ' + error.message);
+                Object.assign(lastTestResult, {
+                    success: false,
+                    status_code: null,
+                    response_text: error.message,
+                    target_url: '',
+                    error_message: error.message
+                });
+                testResultVisible.value = true;
+            } finally {
+                testingConnection.value = false;
+            }
+        };
+
+        // 复制测试结果
+        const copyTestResult = async () => {
+            try {
+                await copyToClipboard(lastTestResult.response_text);
+            } catch (error) {
+                ElMessage.error('复制失败');
+            }
         };
 
         // 格式化服务和渠道组合显示（换行形式）
@@ -532,18 +735,175 @@ const app = createApp({
                 const claudeData = await fetchWithErrorHandling('/api/config/claude');
                 const claudeContent = claudeData?.content ?? '{}';
                 configContents.claude = claudeContent.trim() ? claudeContent : '{}';
-                
+                syncJsonToForm('claude');
+
                 // 加载Codex配置
                 const codexData = await fetchWithErrorHandling('/api/config/codex');
                 const codexContent = codexData?.content ?? '{}';
                 configContents.codex = codexContent.trim() ? codexContent : '{}';
+                syncJsonToForm('codex');
             } catch (error) {
                 const errorMsg = '// 加载失败: ' + error.message;
                 configContents.claude = errorMsg;
                 configContents.codex = errorMsg;
+                // 错误情况下清空友好表单
+                friendlyConfigs.claude = [];
+                friendlyConfigs.codex = [];
             }
         };
         
+        // 友好表单配置管理方法
+        const startAddingSite = (service) => {
+            editingNewSite[service] = true;
+            newSiteData[service] = {
+                name: '',
+                baseUrl: 'https://',
+                authType: 'auth_token',
+                authValue: '',
+                active: false
+            };
+            // 自动聚焦到站点名称输入框
+            nextTick(() => {
+                const input = document.querySelector('.new-site-name-input input');
+                if (input) {
+                    input.focus();
+                }
+            });
+        };
+
+        const confirmAddSite = (service) => {
+            if (newSiteData[service].name.trim()) {
+                // 如果新站点设置为激活，先关闭其他站点
+                if (newSiteData[service].active) {
+                    friendlyConfigs[service].forEach(site => {
+                        site.active = false;
+                    });
+                }
+                // 插入到第一个位置
+                friendlyConfigs[service].unshift({...newSiteData[service]});
+                editingNewSite[service] = false;
+                syncFormToJson(service);
+            }
+        };
+
+        const cancelAddSite = (service) => {
+            editingNewSite[service] = false;
+            newSiteData[service] = {
+                name: '',
+                baseUrl: 'https://',
+                authType: 'auth_token',
+                authValue: '',
+                active: false
+            };
+        };
+
+        const removeConfigSite = (service, index) => {
+            friendlyConfigs[service].splice(index, 1);
+            syncFormToJson(service);
+        };
+
+        // 处理激活状态变化（单选逻辑）
+        const handleActiveChange = (service, activeIndex, newValue) => {
+            if (newValue) {
+                // 如果激活当前站点，关闭其他站点
+                friendlyConfigs[service].forEach((site, index) => {
+                    if (index !== activeIndex) {
+                        site.active = false;
+                    }
+                });
+            }
+            syncFormToJson(service);
+        };
+
+        // 从表单同步到JSON
+        const syncFormToJson = (service) => {
+            if (syncInProgress.value) return;
+
+            try {
+                syncInProgress.value = true;
+                const jsonObj = {};
+                friendlyConfigs[service].forEach(site => {
+                    if (site.name && site.name.trim()) {
+                        const config = {
+                            base_url: site.baseUrl || '',
+                            active: site.active || false
+                        };
+
+                        // 根据认证类型设置相应字段
+                        if (site.authType === 'auth_token') {
+                            config.auth_token = site.authValue || '';
+                            config.api_key = '';
+                        } else {
+                            config.api_key = site.authValue || '';
+                            config.auth_token = '';
+                        }
+
+                        jsonObj[site.name.trim()] = config;
+                    }
+                });
+
+                configContents[service] = JSON.stringify(jsonObj, null, 2);
+            } catch (error) {
+                console.error('同步表单到JSON失败:', error);
+            } finally {
+                // 延迟重置状态，确保watch不会立即触发
+                nextTick(() => {
+                    syncInProgress.value = false;
+                });
+            }
+        };
+
+        // 从JSON同步到表单
+        const syncJsonToForm = (service) => {
+            if (syncInProgress.value) return;
+
+            try {
+                syncInProgress.value = true;
+                const content = configContents[service];
+                if (!content || content.trim() === '' || content.trim() === '{}') {
+                    friendlyConfigs[service] = [];
+                    return;
+                }
+
+                const jsonObj = JSON.parse(content);
+                const sites = [];
+
+                Object.entries(jsonObj).forEach(([siteName, config]) => {
+                    if (config && typeof config === 'object') {
+                        // 判断使用哪种认证方式
+                        let authType = 'auth_token';
+                        let authValue = '';
+
+                        if (config.api_key && config.api_key.trim()) {
+                            authType = 'api_key';
+                            authValue = config.api_key;
+                        } else if (config.auth_token) {
+                            authType = 'auth_token';
+                            authValue = config.auth_token;
+                        }
+
+                        sites.push({
+                            name: siteName,
+                            baseUrl: config.base_url || '',
+                            authType: authType,
+                            authValue: authValue,
+                            active: config.active || false
+                        });
+                    }
+                });
+
+                friendlyConfigs[service] = sites;
+            } catch (error) {
+                console.error('同步JSON到表单失败:', error);
+                // JSON解析失败时保持现有表单数据不变
+            } finally {
+                // 延迟重置状态
+                nextTick(() => {
+                    syncInProgress.value = false;
+                });
+            }
+        };
+
         const saveConfig = async () => {
             const service = activeConfigTab.value;
             const content = configContents[service];
@@ -871,6 +1231,23 @@ const app = createApp({
             }
         };
         
+        // 添加对JSON内容变化的监听，实现JSON到表单的同步
+        // 监听Claude配置JSON变化
+        watch(() => configContents.claude, (newValue) => {
+            // 延迟执行，避免在同步过程中产生循环调用
+            nextTick(() => {
+                syncJsonToForm('claude');
+            });
+        });
+
+        // 监听Codex配置JSON变化
+        watch(() => configContents.codex, (newValue) => {
+            // 延迟执行，避免在同步过程中产生循环调用
+            nextTick(() => {
+                syncJsonToForm('codex');
+            });
+        });
+
         // 组件挂载
         onMounted(() => {
             loadData();
@@ -908,7 +1285,16 @@ const app = createApp({
             usageDetailsLoading,
             usageMetricLabels,
             metricKeys,
-            
+            friendlyConfigs,
+            configEditMode,
+            editingNewSite,
+            newSiteData,
+            modelSelectorVisible,
+            testResultVisible,
+            testingConnection,
+            testConfig,
+            lastTestResult,
+
             // 方法
             refreshData,
             switchConfig,
@@ -943,7 +1329,21 @@ const app = createApp({
             closeUsageDrawer,
             clearUsageData,
             loadUsageDetails,
-            getSortedHeaderKeys
+            getSortedHeaderKeys,
+            startAddingSite,
+            confirmAddSite,
+            cancelAddSite,
+            removeConfigSite,
+            handleActiveChange,
+            syncFormToJson,
+            syncJsonToForm,
+            getModelOptions,
+            testNewSiteConnection,
+            testSiteConnection,
+            showModelSelector,
+            cancelModelSelection,
+            confirmModelSelection,
+            copyTestResult
         };
     }
 });

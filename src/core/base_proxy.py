@@ -9,7 +9,7 @@ import json
 import subprocess
 import sys
 import time
-from abc import ABC
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlsplit
@@ -206,6 +206,23 @@ class BaseProxyService(ABC):
             headers['authorization'] = f'Bearer {config_data["auth_token"]}'
 
         return target_url, headers, body, active_config_name
+
+    @abstractmethod
+    def test_endpoint(self, model: str, base_url: str, auth_token: str = None, api_key: str = None, extra_params: dict = None) -> dict:
+        """
+        测试API端点连通性
+
+        Args:
+            model: 模型名称
+            base_url: 目标API地址
+            auth_token: 认证令牌（可选）
+            api_key: API密钥（可选）
+            extra_params: 扩展参数（可选）
+
+        Returns:
+            dict: 包含测试结果的字典
+        """
+        pass
 
     def apply_request_filter(self, data: bytes) -> bytes:
         """应用请求过滤器"""

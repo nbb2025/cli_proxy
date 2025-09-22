@@ -1106,3 +1106,224 @@ header h1 {
         display: none;
     }
 }
+
+/* 配置编辑器新样式 */
+
+/* 模式切换标签 */
+.config-mode-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e9ecef;
+}
+
+/* 交互模式容器 */
+.interactive-mode-container {
+    display: flex;
+    flex-direction: column;
+}
+
+/* JSON模式容器 */
+.json-mode-container {
+    display: flex;
+    flex-direction: column;
+}
+
+.json-mode-container label {
+    font-weight: 600;
+    color: #2c3e50;
+    margin-bottom: 12px;
+}
+
+/* 配置表单头部 */
+.config-form-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding: 16px 20px;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+}
+
+.config-form-header label {
+    font-weight: 600;
+    color: #2c3e50;
+    font-size: 16px;
+    margin: 0;
+}
+
+.config-actions {
+    display: flex;
+    gap: 12px;
+}
+
+/* 配置站点容器 */
+.config-sites-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* 配置站点卡片 */
+.config-site-card {
+    background: white;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.config-site-card:hover {
+    border-color: #409eff;
+    box-shadow: 0 4px 12px rgba(64, 158, 255, 0.15);
+}
+
+/* 新站点编辑器 */
+.new-site-editor {
+    border: 2px dashed #409eff;
+    background: #f0f8ff;
+    position: relative;
+}
+
+.new-site-editor::before {
+    content: "新增站点";
+    position: absolute;
+    top: -12px;
+    left: 16px;
+    background: #409eff;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* 激活状态的站点卡片 */
+.site-active {
+    border-color: #67c23a;
+    background: #f0f9ff;
+}
+
+.site-active::before {
+    content: "已激活";
+    position: absolute;
+    top: -12px;
+    right: 16px;
+    background: #67c23a;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* 配置字段布局 */
+.config-field {
+    display: flex;
+    align-items: center;
+    margin-bottom: 16px;
+    gap: 12px;
+}
+
+.field-label {
+    min-width: 100px;
+    font-weight: 500;
+    color: #2c3e50;
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.field-control {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+
+/* 行内操作按钮 */
+.config-actions-inline {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+}
+
+/* 配置帮助信息 */
+.config-form-help {
+    text-align: center;
+    padding: 32px 16px;
+    color: #7f8c8d;
+    background: white;
+    border: 1px dashed #d9d9d9;
+    border-radius: 8px;
+}
+
+.config-form-help p {
+    margin: 0;
+    font-size: 14px;
+}
+
+/* 响应式布局 */
+@media (max-width: 1200px) {
+    .config-field {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .field-label {
+        min-width: auto;
+        text-align: left;
+    }
+
+    .field-control {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .config-actions-inline {
+        margin-left: 0;
+        margin-top: 8px;
+    }
+}
+
+@media (max-width: 768px) {
+    .config-form-header {
+        flex-direction: column;
+        gap: 12px;
+        align-items: flex-start;
+    }
+
+    .config-mode-tabs {
+        flex-direction: column;
+    }
+
+    .config-site-card {
+        padding: 16px;
+    }
+
+    .config-field {
+        gap: 12px;
+    }
+
+    .field-control {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .config-actions-inline {
+        justify-content: center;
+    }
+
+    .new-site-editor::before,
+    .site-active::before {
+        position: static;
+        display: inline-block;
+        margin-bottom: 12px;
+    }
+}

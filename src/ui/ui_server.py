@@ -637,39 +637,92 @@ def switch_config():
         data = request.get_json()
         service = data.get('service')
         config = data.get('config')
-        
+
         if not service or not config:
             return jsonify({'error': 'Missing service or config parameter'}), 400
-        
+
         if service not in ['claude', 'codex']:
             return jsonify({'error': 'Invalid service name'}), 400
-        
+
         # 导入对应的配置管理器
         if service == 'claude':
             from src.config.cached_config_manager import claude_config_manager as config_manager
         else:
             from src.config.cached_config_manager import codex_config_manager as config_manager
-        
+
         # 切换配置
         if config_manager.set_active_config(config):
             # 验证配置确实已切换
             actual_config = config_manager.active_config
             if actual_config == config:
                 return jsonify({
-                    'success': True, 
+                    'success': True,
                     'message': f'{service}配置已切换到: {config}',
                     'active_config': actual_config
                 })
             else:
                 return jsonify({
-                    'success': False, 
+                    'success': False,
                     'message': f'配置切换验证失败，当前配置: {actual_config}'
                 })
         else:
             return jsonify({'success': False, 'message': f'配置{config}不存在'})
-            
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/test-connection', methods=['POST'])
+def test_connection():
+    """测试API端点连通性"""
+    try:
+        data = request.get_json()
+        service = data.get('service')
+        model = data.get('model')
+        base_url = data.get('base_url')
+        auth_token = data.get('auth_token')
+        api_key = data.get('api_key')
+        extra_params = data.get('extra_params', {})
+
+        # 参数验证
+        if not service:
+            return jsonify({'error': 'Missing service parameter'}), 400
+        if not model:
+            return jsonify({'error': 'Missing model parameter'}), 400
+        if not base_url:
+            return jsonify({'error': 'Missing base_url parameter'}), 400
+
+        if service not in ['claude', 'codex']:
+            return jsonify({'error': 'Invalid service name'}), 400
+
+        # 验证至少有一种认证方式
+        if not auth_token and not api_key:
+            return jsonify({'error': 'Missing authentication (auth_token or api_key)'}), 400
+
+        # 获取对应的proxy实例
+        if service == 'claude':
+            from src.claude.proxy import proxy_service
+        else:
+            from src.codex.proxy import proxy_service
+
+        # 调用测试方法
+        result = proxy_service.test_endpoint(
+            model=model,
+            base_url=base_url,
+            auth_token=auth_token,
+            api_key=api_key,
+            extra_params=extra_params
+        )
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'status_code': None,
+            'response_text': str(e),
+            'target_url': None,
+            'error_message': str(e)
+        }), 500
 
 def start_ui_server(port=3300):
     """启动UI服务器并打开浏览器"""

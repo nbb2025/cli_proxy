@@ -193,17 +193,174 @@
             <div class="config-content">
                 <div v-show="activeConfigTab === 'claude'" class="tab-panel">
                     <div class="config-editor">
-                        <label>claude.json 配置内容:</label>
-                        <el-input
-                            v-model="configContents.claude"
-                            type="textarea"
-                            :rows="20"
-                            placeholder="加载中..."
-                            style="font-family: monospace;">
-                        </el-input>
-                        <div class="config-help">
-                            <p><strong>示例结构:</strong></p>
-                            <code>{
+                        <!-- 模式切换区域 -->
+                        <div class="config-mode-tabs">
+                            <el-button
+                                :type="configEditMode === 'interactive' ? 'primary' : ''"
+                                @click="configEditMode = 'interactive'"
+                                size="small">
+                                交互模式
+                            </el-button>
+                            <el-button
+                                :type="configEditMode === 'json' ? 'primary' : ''"
+                                @click="configEditMode = 'json'"
+                                size="small">
+                                JSON模式
+                            </el-button>
+                        </div>
+
+                        <!-- 交互模式内容区 -->
+                        <div v-show="configEditMode === 'interactive'" class="interactive-mode-container">
+                            <div class="config-form-header">
+                                <label>站点配置管理:</label>
+                                <div class="config-actions">
+                                    <el-button
+                                        type="success"
+                                        size="small"
+                                        icon="el-icon-plus"
+                                        @click="startAddingSite('claude')">添加站点
+                                    </el-button>
+                                    <el-button
+                                        type="primary"
+                                        size="small"
+                                        @click="saveConfig"
+                                        :loading="configSaving">
+                                        保存配置
+                                    </el-button>
+                                </div>
+                            </div>
+
+                            <div class="config-sites-container">
+                                <!-- 新增站点编辑器 -->
+                                <div v-if="editingNewSite.claude" class="config-site-card new-site-editor">
+                                    <div class="config-field">
+                                        <label class="field-label">站点名称:</label>
+                                        <el-input
+                                            v-model="newSiteData.claude.name"
+                                            placeholder="例如: OpenAI-GPT4"
+                                            class="new-site-name-input"
+                                            @keyup.enter="confirmAddSite('claude')">
+                                        </el-input>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">目标地址:</label>
+                                        <el-input
+                                            v-model="newSiteData.claude.baseUrl"
+                                            placeholder="例如: https://api.openai.com">
+                                        </el-input>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">认证方式:</label>
+                                        <el-radio-group v-model="newSiteData.claude.authType">
+                                            <el-radio-button label="auth_token">Auth Token</el-radio-button>
+                                            <el-radio-button label="api_key">API Key</el-radio-button>
+                                        </el-radio-group>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">认证密钥:</label>
+                                        <el-input
+                                            v-model="newSiteData.claude.authValue"
+                                            :placeholder="newSiteData.claude.authType === 'auth_token' ? '认证令牌' : 'API密钥'"
+                                            type="password"
+                                            show-password>
+                                        </el-input>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">激活状态:</label>
+                                        <div class="field-control">
+                                            <el-switch v-model="newSiteData.claude.active"></el-switch>
+                                            <div class="config-actions-inline">
+                                                <el-button @click="cancelAddSite('claude')" size="small">取消</el-button>
+                                                <el-button type="primary" @click="confirmAddSite('claude')" size="small">确认</el-button>
+                                                <el-button type="info" @click="testNewSiteConnection('claude')" size="small" plain>测试</el-button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 现有站点列表 -->
+                                <div v-for="(site, index) in friendlyConfigs.claude" :key="index"
+                                     :class="['config-site-card', { 'site-active': site.active }]">
+                                    <div class="config-field">
+                                        <label class="field-label">站点名称:</label>
+                                        <el-input
+                                            v-model="site.name"
+                                            placeholder="站点名称"
+                                            @input="syncFormToJson('claude')">
+                                        </el-input>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">目标地址:</label>
+                                        <el-input
+                                            v-model="site.baseUrl"
+                                            placeholder="目标站点地址"
+                                            @input="syncFormToJson('claude')">
+                                        </el-input>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">认证方式:</label>
+                                        <el-radio-group
+                                            v-model="site.authType"
+                                            @change="syncFormToJson('claude')">
+                                            <el-radio-button label="auth_token">Auth Token</el-radio-button>
+                                            <el-radio-button label="api_key">API Key</el-radio-button>
+                                        </el-radio-group>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">认证密钥:</label>
+                                        <el-input
+                                            v-model="site.authValue"
+                                            :placeholder="site.authType === 'auth_token' ? '认证令牌' : 'API密钥'"
+                                            type="password"
+                                            show-password
+                                            @input="syncFormToJson('claude')">
+                                        </el-input>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">激活状态:</label>
+                                        <div class="field-control">
+                                            <el-switch
+                                                v-model="site.active"
+                                                @change="handleActiveChange('claude', index, $event)">
+                                            </el-switch>
+                                            <div class="config-actions-inline">
+                                                <el-button
+                                                    @click="removeConfigSite('claude', index)"
+                                                    type="danger"
+                                                    size="small">
+                                                    删除
+                                                </el-button>
+                                                <el-button
+                                                    @click="testSiteConnection('claude', index)"
+                                                    type="info"
+                                                    size="small"
+                                                    plain>
+                                                    测试
+                                                </el-button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="config-form-help" v-if="friendlyConfigs.claude.length === 0 && !editingNewSite.claude">
+                                    <p><em>暂无站点配置，点击"添加站点"按钮开始配置</em></p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- JSON模式内容区 -->
+                        <div v-show="configEditMode === 'json'" class="json-mode-container">
+                            <label>claude.json 配置内容:</label>
+                            <el-input
+                                v-model="configContents.claude"
+                                type="textarea"
+                                :rows="20"
+                                placeholder="加载中..."
+                                style="font-family: monospace;">
+                            </el-input>
+                            <div class="config-help">
+                                <p><strong>示例结构:</strong></p>
+                                <code>{
   "自定义站点名称": {
     "base_url": "目标站点地址",
     "auth_token": "令牌",
@@ -211,32 +368,190 @@
     "active": false
   }
 }</code>
-                        </div>
-                        <div class="editor-actions">
-                            <el-button 
-                                type="primary" 
-                                @click="saveConfig('claude')" 
-                                :loading="configSaving"
-                                size="small">
-                                保存 Claude 配置
-                            </el-button>
+                            </div>
+                            <div class="editor-actions">
+                                <el-button
+                                    type="primary"
+                                    @click="saveConfig"
+                                    :loading="configSaving"
+                                    size="small">
+                                    保存配置
+                                </el-button>
+                            </div>
                         </div>
                     </div>
                 </div>
                 
                 <div v-show="activeConfigTab === 'codex'" class="tab-panel">
                     <div class="config-editor">
-                        <label>codex.json 配置内容:</label>
-                        <el-input
-                            v-model="configContents.codex"
-                            type="textarea"
-                            :rows="20"
-                            placeholder="加载中..."
-                            style="font-family: monospace;">
-                        </el-input>
-                        <div class="config-help">
-                            <p><strong>示例结构:</strong></p>
-                            <code>{
+                        <!-- 模式切换区域 -->
+                        <div class="config-mode-tabs">
+                            <el-button
+                                :type="configEditMode === 'interactive' ? 'primary' : ''"
+                                @click="configEditMode = 'interactive'"
+                                size="small">
+                                交互模式
+                            </el-button>
+                            <el-button
+                                :type="configEditMode === 'json' ? 'primary' : ''"
+                                @click="configEditMode = 'json'"
+                                size="small">
+                                JSON模式
+                            </el-button>
+                        </div>
+
+                        <!-- 交互模式内容区 -->
+                        <div v-show="configEditMode === 'interactive'" class="interactive-mode-container">
+                            <div class="config-form-header">
+                                <label>站点配置管理:</label>
+                                <div class="config-actions">
+                                    <el-button
+                                        type="success"
+                                        size="small"
+                                        icon="el-icon-plus"
+                                        @click="startAddingSite('codex')">添加站点
+                                    </el-button>
+                                    <el-button
+                                        type="primary"
+                                        size="small"
+                                        @click="saveConfig"
+                                        :loading="configSaving">
+                                        保存配置
+                                    </el-button>
+                                </div>
+                            </div>
+
+                            <div class="config-sites-container">
+                                <!-- 新增站点编辑器 -->
+                                <div v-if="editingNewSite.codex" class="config-site-card new-site-editor">
+                                    <div class="config-field">
+                                        <label class="field-label">站点名称:</label>
+                                        <el-input
+                                            v-model="newSiteData.codex.name"
+                                            placeholder="例如: OpenAI-GPT4"
+                                            class="new-site-name-input"
+                                            @keyup.enter="confirmAddSite('codex')">
+                                        </el-input>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">目标地址:</label>
+                                        <el-input
+                                            v-model="newSiteData.codex.baseUrl"
+                                            placeholder="例如: https://api.openai.com">
+                                        </el-input>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">认证方式:</label>
+                                        <el-radio-group v-model="newSiteData.codex.authType">
+                                            <el-radio-button label="auth_token">Auth Token</el-radio-button>
+                                            <el-radio-button label="api_key">API Key</el-radio-button>
+                                        </el-radio-group>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">认证密钥:</label>
+                                        <el-input
+                                            v-model="newSiteData.codex.authValue"
+                                            :placeholder="newSiteData.codex.authType === 'auth_token' ? '认证令牌' : 'API密钥'"
+                                            type="password"
+                                            show-password>
+                                        </el-input>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">激活状态:</label>
+                                        <div class="field-control">
+                                            <el-switch v-model="newSiteData.codex.active"></el-switch>
+                                            <div class="config-actions-inline">
+                                                <el-button @click="cancelAddSite('codex')" size="small">取消</el-button>
+                                                <el-button type="primary" @click="confirmAddSite('codex')" size="small">确认</el-button>
+                                                <el-button type="info" @click="testNewSiteConnection('codex')" size="small" plain>测试</el-button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 现有站点列表 -->
+                                <div v-for="(site, index) in friendlyConfigs.codex" :key="index"
+                                     :class="['config-site-card', { 'site-active': site.active }]">
+                                    <div class="config-field">
+                                        <label class="field-label">站点名称:</label>
+                                        <el-input
+                                            v-model="site.name"
+                                            placeholder="站点名称"
+                                            @input="syncFormToJson('codex')">
+                                        </el-input>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">目标地址:</label>
+                                        <el-input
+                                            v-model="site.baseUrl"
+                                            placeholder="目标站点地址"
+                                            @input="syncFormToJson('codex')">
+                                        </el-input>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">认证方式:</label>
+                                        <el-radio-group
+                                            v-model="site.authType"
+                                            @change="syncFormToJson('codex')">
+                                            <el-radio-button label="auth_token">Auth Token</el-radio-button>
+                                            <el-radio-button label="api_key">API Key</el-radio-button>
+                                        </el-radio-group>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">认证密钥:</label>
+                                        <el-input
+                                            v-model="site.authValue"
+                                            :placeholder="site.authType === 'auth_token' ? '认证令牌' : 'API密钥'"
+                                            type="password"
+                                            show-password
+                                            @input="syncFormToJson('codex')">
+                                        </el-input>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">激活状态:</label>
+                                        <div class="field-control">
+                                            <el-switch
+                                                v-model="site.active"
+                                                @change="handleActiveChange('codex', index, $event)">
+                                            </el-switch>
+                                            <div class="config-actions-inline">
+                                                <el-button
+                                                    @click="removeConfigSite('codex', index)"
+                                                    type="danger"
+                                                    size="small">
+                                                    删除
+                                                </el-button>
+                                                <el-button
+                                                    @click="testSiteConnection('codex', index)"
+                                                    type="info"
+                                                    size="small"
+                                                    plain>
+                                                    测试
+                                                </el-button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="config-form-help" v-if="friendlyConfigs.codex.length === 0 && !editingNewSite.codex">
+                                    <p><em>暂无站点配置，点击"添加站点"按钮开始配置</em></p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- JSON模式内容区 -->
+                        <div v-show="configEditMode === 'json'" class="json-mode-container">
+                            <label>codex.json 配置内容:</label>
+                            <el-input
+                                v-model="configContents.codex"
+                                type="textarea"
+                                :rows="20"
+                                placeholder="加载中..."
+                                style="font-family: monospace;">
+                            </el-input>
+                            <div class="config-help">
+                                <p><strong>示例结构:</strong></p>
+                                <code>{
   "自定义站点名称": {
     "base_url": "目标站点地址",
     "auth_token": "令牌",
@@ -244,15 +559,16 @@
     "active": false
   }
 }</code>
-                        </div>
-                        <div class="editor-actions">
-                            <el-button 
-                                type="primary" 
-                                @click="saveConfig('codex')" 
-                                :loading="configSaving"
-                                size="small">
-                                保存 Codex 配置
-                            </el-button>
+                            </div>
+                            <div class="editor-actions">
+                                <el-button
+                                    type="primary"
+                                    @click="saveConfig"
+                                    :loading="configSaving"
+                                    size="small">
+                                    保存配置
+                                </el-button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -591,8 +907,96 @@
             </div>
         </el-drawer>
 
+        <!-- 模型选择弹框 -->
+        <el-dialog
+            v-model="modelSelectorVisible"
+            title="选择模型进行测试"
+            width="400px"
+            @close="cancelModelSelection">
+            <div class="model-selector-content">
+                <el-form :model="testConfig" label-width="80px">
+                    <el-form-item label="模型:">
+                        <el-select
+                            v-model="testConfig.model"
+                            placeholder="请选择或输入模型名称"
+                            style="width: 100%"
+                            filterable
+                            allow-create>
+                            <el-option
+                                v-for="model in getModelOptions(testConfig.service)"
+                                :key="model.value"
+                                :label="model.label"
+                                :value="model.value">
+                            </el-option>
+                        </el-select>
+                    </el-form-item>
+                    <el-form-item v-if="testConfig.service === 'codex'" label="推理等级:">
+                        <el-select
+                            v-model="testConfig.reasoningEffort"
+                            placeholder="请选择推理等级"
+                            style="width: 100%">
+                            <el-option label="minimal" value="minimal"></el-option>
+                            <el-option label="high" value="high"></el-option>
+                            <el-option label="medium" value="medium"></el-option>
+                            <el-option label="low" value="low"></el-option>
+                        </el-select>
+                    </el-form-item>
+                </el-form>
+            </div>
+            <template #footer>
+                <span class="dialog-footer">
+                    <el-button @click="cancelModelSelection">取消</el-button>
+                    <el-button type="primary" @click="confirmModelSelection" :loading="testingConnection">
+                        开始测试
+                    </el-button>
+                </span>
+            </template>
+        </el-dialog>
+
+        <!-- 测试结果弹框 -->
+        <el-dialog
+            v-model="testResultVisible"
+            title="连接测试结果"
+            width="600px">
+            <div class="test-result-content">
+                <div class="test-result-summary">
+                    <div class="result-item">
+                        <span class="result-label">测试状态:</span>
+                        <el-tag :type="lastTestResult.success ? 'success' : 'danger'" size="default">
+                            {{ lastTestResult.success ? '连接成功' : '连接失败' }}
+                        </el-tag>
+                    </div>
+                    <div class="result-item">
+                        <span class="result-label">状态码:</span>
+                        <span class="result-value">{{ lastTestResult.status_code || '-' }}</span>
+                    </div>
+                    <div class="result-item">
+                        <span class="result-label">目标URL:</span>
+                        <span class="result-value">{{ lastTestResult.target_url || '-' }}</span>
+                    </div>
+                    <div v-if="lastTestResult.error_message" class="result-item">
+                        <span class="result-label">错误信息:</span>
+                        <span class="result-value error">{{ lastTestResult.error_message }}</span>
+                    </div>
+                </div>
+                <div class="test-response-section">
+                    <h4>响应数据:</h4>
+                    <el-input
+                        v-model="lastTestResult.response_text"
+                        type="textarea"
+                        :rows="8"
+                        readonly
+                        placeholder="无响应数据">
+                    </el-input>
+                    <div class="response-actions">
+                        <el-button size="small" @click="copyTestResult">复制响应</el-button>
+                    </div>
+                </div>
+            </div>
+        </el-dialog>
+
         <!-- Usage详情抽屉 -->
-        <el-drawer 
+        <el-drawer
             v-model="usageDrawerVisible"
             title="Token 使用详情"
             size="1000px"
