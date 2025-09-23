@@ -127,6 +127,22 @@ const app = createApp({
         const decodedOriginalRequestBody = ref(''); // 解码后的原始请求体
         const decodedResponseContent = ref(''); // 解码后的响应内容
 
+        // 实时请求相关数据
+        const realtimeRequests = ref([]);
+        const realtimeDetailVisible = ref(false);
+        const selectedRealtimeRequest = ref(null);
+        const connectionStatus = reactive({ claude: false, codex: false });
+        const realtimeManager = ref(null);
+        const maxRealtimeRequests = 20;
+
+        // 请求状态映射
+        const REQUEST_STATUS = {
+            PENDING: { text: '已请求', type: 'warning' },
+            STREAMING: { text: '接收中', type: 'primary' },
+            COMPLETED: { text: '已完成', type: 'success' },
+            FAILED: { text: '失败', type: 'danger' }
+        };
+
         const metricKeys = ['input', 'cached_create', 'cached_read', 'output', 'reasoning', 'total'];
         const createEmptyMetrics = () => ({
             input: 0,
@@ -977,7 +993,7 @@ const app = createApp({
         const saveConfig = async () => {
             const service = activeConfigTab.value;
             const content = configContents[service];
-            
+
             if (!content.trim()) {
                 ElMessage.warning('配置内容不能为空');
                 return;
@@ -1318,9 +1334,196 @@ const app = createApp({
             });
         });
 
+        // 实时请求相关方法
+        const initRealTimeConnections = () => {
+            try {
+                realtimeManager.value = new RealTimeManager();
+                const removeListener = realtimeManager.value.addListener(handleRealTimeEvent);
+
+                // 页面卸载时清理
+                window.addEventListener('beforeunload', () => {
+                    removeListener();
+                    if (realtimeManager.value) {
+                        realtimeManager.value.destroy();
+                    }
+                });
+
+                // 延迟连接，等待代理服务启动
+                setTimeout(() => {
+                    realtimeManager.value.connectAll();
+                    console.log('实时连接管理器初始化成功');
+                }, 1000); // 延迟1秒再连接
+            } catch (error) {
+                console.error('初始化实时连接失败:', error);
+                ElMessage.error('实时连接初始化失败: ' + error.message);
+            }
+        };
+
+        const handleRealTimeEvent = (event) => {
+            try {
+                switch (event.type) {
+                    case 'connection':
+                        connectionStatus[event.service] = event.status === 'connected';
+                        if (event.status === 'connected') {
+                            console.log(`${event.service} 实时连接已建立`);
+                        } else if (event.status === 'disconnected') {
+                            console.log(`${event.service} 实时连接已断开`);
+                        } else if (event.status === 'error') {
+                            console.log(`${event.service} 实时连接错误:`, event.error);
+                        }
+                        break;
+
+                    case 'snapshot':
+                    case 'started':
+                        addRealtimeRequest(event);
+                        break;
+
+                    case 'progress':
+                        updateRequestProgress(event);
+                        break;
+
+                    case 'completed':
+                    case 'failed':
+                        completeRequest(event);
+                        break;
+
+                    default:
+                }
+            } catch (error) {
+                console.error('处理实时事件失败:', error);
+            }
+        };
+
+        const addRealtimeRequest = (event) => {
+            try {
+                const existingIndex = realtimeRequests.value.findIndex(r => r.request_id === event.request_id);
+
+                if (existingIndex >= 0) {
+                    // 更新现有请求
+                    Object.assign(realtimeRequests.value[existingIndex], event);
+                } else {
+                    // 添加新请求
+                    const request = {
+                        ...event,
+                        responseText: '',
+                        displayDuration: event.duration_ms || 0
+                    };
+
+                    realtimeRequests.value.unshift(request);
+
+                    // 保持最多显示指定数量的请求
+                    if (realtimeRequests.value.length > maxRealtimeRequests) {
+                        realtimeRequests.value = realtimeRequests.value.slice(0, maxRealtimeRequests);
+                    }
+                }
+            } catch (error) {
+                console.error('添加实时请求失败:', error);
+            }
+        };
+
+        const updateRequestProgress = (event) => {
+            try {
+                const request = realtimeRequests.value.find(r => r.request_id === event.request_id);
+                if (!request) return;
+
+                // 更新状态和耗时
+                if (event.status) {
+                    request.status = event.status;
+                }
+                if (event.duration_ms !== undefined) {
+                    request.displayDuration = event.duration_ms;
+                }
+
+                // 累积响应文本
+                if (event.response_delta) {
+                    request.responseText += event.response_delta;
+
+                    // 如果详情抽屉开着且显示当前请求，自动滚动
+                    if (realtimeDetailVisible.value &&
+                        selectedRealtimeRequest.value?.request_id === event.request_id) {
+                        nextTick(() => {
+                            scrollResponseToBottom();
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('更新请求进度失败:', error);
+            }
+        };
+
+        const completeRequest = (event) => {
+            try {
+                const request = realtimeRequests.value.find(r => r.request_id === event.request_id);
+                if (!request) return;
+
+                request.status = event.status || (event.type === 'completed' ? 'COMPLETED' : 'FAILED');
+                request.displayDuration = event.duration_ms || request.displayDuration;
+                request.status_code = event.status_code;
+            } catch (error) {
+                console.error('完成请求失败:', error);
+            }
+        };
+
+        // UI辅助方法
+        const formatRealtimeTime = (isoString) => {
+            try {
+                return new Date(isoString).toLocaleTimeString('zh-CN');
+            } catch (error) {
+                return isoString;
+            }
+        };
+
+        const getStatusDisplay = (status) => {
+            return REQUEST_STATUS[status] || { text: status, type: '' };
+        };
+
+        const showRealtimeDetail = (request) => {
+            selectedRealtimeRequest.value = request;
+            realtimeDetailVisible.value = true;
+        };
+
+        const scrollResponseToBottom = () => {
+            try {
+                const container = document.querySelector('.response-stream-content');
+                if (container) {
+                    container.scrollTop = container.scrollHeight;
+                }
+            } catch (error) {
+                console.error('滚动响应内容失败:', error);
+            }
+        };
+
+        const reconnectRealtime = () => {
+            if (realtimeManager.value) {
+                console.log('手动重连实时服务...');
+                console.log('当前连接状态:', realtimeManager.value.getConnectionStatus());
+                console.log('管理器状态:', realtimeManager.value.getStatus());
+
+                realtimeManager.value.reconnectAll();
+                ElMessage.info('正在重新连接实时服务...');
+            }
+        };
+
+        // 添加调试功能
+        const checkConnectionStatus = () => {
+            if (realtimeManager.value) {
+                console.log('=== 连接状态调试信息 ===');
+                console.log('连接状态:', realtimeManager.value.getConnectionStatus());
+                console.log('管理器状态:', realtimeManager.value.getStatus());
+                console.log('当前实时请求数量:', realtimeRequests.value.length);
+                console.log('实时请求列表:', realtimeRequests.value);
+                console.log('========================');
+            }
+        };
+
+        // 暴露调试功能到全局
+        window.debugRealtime = checkConnectionStatus;
+
         // 组件挂载
         onMounted(() => {
             loadData();
+            // 初始化实时连接
+            initRealTimeConnections();
         });
         
         return {
@@ -1420,13 +1623,32 @@ const app = createApp({
             showTestResponse,
             testResponseDialogVisible,
             testResponseData,
-            copyTestResponseData
+            copyTestResponseData,
+
+            // 实时请求相关
+            realtimeRequests,
+            realtimeDetailVisible,
+            selectedRealtimeRequest,
+            connectionStatus,
+            formatRealtimeTime,
+            getStatusDisplay,
+            showRealtimeDetail,
+            reconnectRealtime
         };
     }
 });
 
-// 使用Element Plus
-app.use(ElementPlus);
+// 检查Element Plus是否正确加载
+console.log('ElementPlus对象:', ElementPlus);
+console.log('ElementPlus.version:', ElementPlus.version);
+
+// 使用Element Plus - 包括所有组件和指令
+try {
+    app.use(ElementPlus);
+    console.log('Element Plus 配置成功');
+} catch (error) {
+    console.error('Element Plus 配置失败:', error);
+}
 
 // 挂载应用
 app.mount('#app');

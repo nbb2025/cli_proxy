@@ -9,13 +9,14 @@ import json
 import subprocess
 import sys
 import time
+import uuid
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlsplit
 
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..utils.usage_parser import (
@@ -23,6 +24,7 @@ from ..utils.usage_parser import (
     normalize_usage_record,
 )
 from ..utils.platform_helper import create_detached_process
+from .realtime_hub import RealTimeRequestHub
 
 class BaseProxyService(ABC):
     """基础代理服务类"""
@@ -30,7 +32,7 @@ class BaseProxyService(ABC):
     def __init__(self, service_name: str, port: int, config_manager):
         """
         初始化代理服务
-        
+
         Args:
             service_name: 服务名称 (claude/codex)
             port: 服务端口
@@ -45,7 +47,7 @@ class BaseProxyService(ABC):
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.pid_file = self.config_dir / f'{service_name}_proxy.pid'
         self.log_file = self.config_dir / f'{service_name}_proxy.log'
-        
+
         # 数据目录
         self.data_dir = Path.home() / '.clp/data'
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -57,18 +59,21 @@ class BaseProxyService(ABC):
             except OSError:
                 # 如果重命名失败，则保留旧文件并继续使用旧路径
                 self.traffic_log = old_log
-        
+
         # 初始化异步HTTP客户端
         self.client = self._create_async_client()
 
         # 响应日志截断阈值（避免长流占用过多内存）
         self.max_logged_response_bytes = 1024 * 1024  # 1MB
 
+        # 初始化实时事件中心
+        self.realtime_hub = RealTimeRequestHub(service_name)
+
         # 初始化FastAPI应用
         self.app = FastAPI()
         self._setup_routes()
         self.app.add_event_handler("shutdown", self._shutdown_event)
-        
+
         # 导入过滤器
         try:
             from ..filter.cached_request_filter import CachedRequestFilter
@@ -106,6 +111,26 @@ class BaseProxyService(ABC):
         )
         async def proxy_route(path: str, request: Request):
             return await self.proxy(path, request)
+
+        @self.app.websocket("/ws/realtime")
+        async def websocket_endpoint(websocket: WebSocket):
+            """WebSocket实时事件端点"""
+            await self.realtime_hub.connect(websocket)
+            try:
+                # 保持连接活跃，等待客户端消息或断开
+                while True:
+                    # 接收客户端的ping消息，保持连接
+                    try:
+                        await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                    except asyncio.TimeoutError:
+                        # 发送ping消息保持连接
+                        await websocket.send_text('{"type":"ping"}')
+            except WebSocketDisconnect:
+                pass
+            except Exception as e:
+                print(f"WebSocket连接异常: {e}")
+            finally:
+                self.realtime_hub.disconnect(websocket)
 
     async def log_request(
         self,
@@ -236,6 +261,7 @@ class BaseProxyService(ABC):
     async def proxy(self, path: str, request: Request):
         """处理代理请求"""
         start_time = time.time()
+        request_id = str(uuid.uuid4())
 
         original_headers = {k: v for k, v in request.headers.items()}
         original_body = await request.body()
@@ -247,6 +273,17 @@ class BaseProxyService(ABC):
 
         try:
             target_url, target_headers, target_body, active_config_name = self.build_target_param(path, request, original_body)
+
+            # 发送请求开始事件
+            await self.realtime_hub.request_started(
+                request_id=request_id,
+                method=request.method,
+                path=path,
+                channel=active_config_name or "unknown",
+                headers=target_headers,
+                target_url=target_url
+            )
+
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
@@ -288,13 +325,32 @@ class BaseProxyService(ABC):
             collected = bytearray()
             total_response_bytes = 0
             response_truncated = False
+            first_chunk = True
 
             async def iterator():
-                nonlocal response_truncated, total_response_bytes
+                nonlocal response_truncated, total_response_bytes, first_chunk
                 try:
                     async for chunk in response.aiter_bytes():
                         if not chunk:
                             continue
+
+                        current_duration = int((time.time() - start_time) * 1000)
+
+                        # 首次接收数据时标记为流式状态
+                        if first_chunk:
+                            await self.realtime_hub.request_streaming(request_id, current_duration)
+                            first_chunk = False
+
+                        # 尝试解码为文本发送实时更新
+                        try:
+                            chunk_text = chunk.decode('utf-8', errors='ignore')
+                            if chunk_text.strip():  # 只发送非空chunk
+                                await self.realtime_hub.response_chunk(
+                                    request_id, chunk_text, current_duration
+                                )
+                        except Exception:
+                            pass  # 忽略解码失败
+
                         total_response_bytes += len(chunk)
                         if len(collected) < self.max_logged_response_bytes:
                             remaining = self.max_logged_response_bytes - len(collected)
@@ -305,13 +361,25 @@ class BaseProxyService(ABC):
                             response_truncated = True
                         yield chunk
                 finally:
+                    final_duration = int((time.time() - start_time) * 1000)
+
+                    # 发送请求完成事件
+                    await self.realtime_hub.request_completed(
+                        request_id=request_id,
+                        status_code=status_code,
+                        duration_ms=final_duration,
+                        success=200 <= status_code < 400
+                    )
+
                     await response.aclose()
+
+                    # 原有日志记录逻辑
                     response_content = bytes(collected) if collected else None
                     await self.log_request(
                         method=request.method,
                         path=path,
                         status_code=status_code,
-                        duration_ms=duration_ms,
+                        duration_ms=final_duration,
                         target_headers=target_headers,
                         filtered_body=filtered_body,
                         original_headers=original_headers,
@@ -344,6 +412,14 @@ class BaseProxyService(ABC):
 
             response_data = {"error": error_msg, "detail": str(exc)}
             status_code = 500
+
+            # 发送错误事件
+            await self.realtime_hub.request_completed(
+                request_id=request_id,
+                status_code=status_code,
+                duration_ms=duration_ms,
+                success=False
+            )
 
             await self.log_request(
                 method=request.method,
