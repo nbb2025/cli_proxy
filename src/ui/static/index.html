@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CLI Proxy 状态监控</title>
     <!-- Element Plus CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <link rel="stylesheet" href="https://unpkg.com/element-plus@2.8.0/dist/index.css">
     <!-- 自定义样式 -->
     <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -105,6 +105,55 @@
                             <h4>Token 使用</h4>
                             <div class="stat-value">{{ usageSummary.formattedTotals.total || '0' }}</div>
                             <div class="stat-hint">点击查看明细</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 实时请求 -->
+                <section class="realtime-section">
+                    <div class="realtime-header">
+                        <h2>实时请求</h2>
+                        <div class="connection-status">
+                            <span v-for="(connected, service) in connectionStatus" :key="service"
+                                  :class="['status-indicator-small', connected ? 'connected' : 'disconnected']">
+                                {{ service }}: {{ connected ? '已连接' : '断开' }}
+                            </span>
+                            <el-button type="text" @click="reconnectRealtime" size="small">
+                                重连
+                            </el-button>
+                        </div>
+                    </div>
+
+                    <div class="realtime-container">
+                        <div class="realtime-table-header">
+                            <span>发起时间</span>
+                            <span>服务</span>
+                            <span>状态</span>
+                            <span>耗时</span>
+                            <span>操作</span>
+                        </div>
+
+                        <div class="realtime-entries">
+                            <div v-if="realtimeRequests.length === 0" class="no-realtime-requests">
+                                <span>无实时请求</span>
+                            </div>
+                            <div v-else v-for="req in realtimeRequests.slice(0, 4)"
+                                 :key="req.request_id"
+                                 class="realtime-entry">
+                                <span>{{ formatRealtimeTime(req.start_time) }}</span>
+                                <span>{{ req.service }} [{{ req.channel }}]</span>
+                                <span>
+                                    <el-tag :type="getStatusDisplay(req.status).type" size="small">
+                                        {{ getStatusDisplay(req.status).text }}
+                                    </el-tag>
+                                </span>
+                                <span>{{ req.displayDuration }}ms</span>
+                                <span>
+                                    <el-button type="text" size="small" @click="showRealtimeDetail(req)">
+                                        详情
+                                    </el-button>
+                                </span>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -1061,12 +1110,79 @@
                 </div>
             </div>
         </el-drawer>
+
+        <!-- 实时请求详情抽屉 -->
+        <el-drawer
+            v-model="realtimeDetailVisible"
+            title="实时请求详情"
+            size="800px"
+            direction="rtl"
+            class="realtime-detail-drawer">
+
+            <div v-if="selectedRealtimeRequest" class="realtime-detail-content">
+                <div class="detail-basic-info">
+                    <el-descriptions title="基本信息" :column="2" border>
+                        <el-descriptions-item label="请求ID">
+                            {{ selectedRealtimeRequest.request_id }}
+                        </el-descriptions-item>
+                        <el-descriptions-item label="服务">
+                            {{ selectedRealtimeRequest.service }}
+                        </el-descriptions-item>
+                        <el-descriptions-item label="渠道">
+                            {{ selectedRealtimeRequest.channel }}
+                        </el-descriptions-item>
+                        <el-descriptions-item label="状态">
+                            <el-tag :type="getStatusDisplay(selectedRealtimeRequest.status).type">
+                                {{ getStatusDisplay(selectedRealtimeRequest.status).text }}
+                            </el-tag>
+                        </el-descriptions-item>
+                        <el-descriptions-item label="方法">
+                            {{ selectedRealtimeRequest.method }}
+                        </el-descriptions-item>
+                        <el-descriptions-item label="路径">
+                            {{ selectedRealtimeRequest.path }}
+                        </el-descriptions-item>
+                        <el-descriptions-item label="耗时">
+                            {{ selectedRealtimeRequest.displayDuration }}ms
+                        </el-descriptions-item>
+                        <el-descriptions-item label="状态码" v-if="selectedRealtimeRequest.status_code">
+                            {{ selectedRealtimeRequest.status_code }}
+                        </el-descriptions-item>
+                        <el-descriptions-item label="开始时间">
+                            {{ formatRealtimeTime(selectedRealtimeRequest.start_time) }}
+                        </el-descriptions-item>
+                        <el-descriptions-item label="目标URL" v-if="selectedRealtimeRequest.target_url">
+                            {{ selectedRealtimeRequest.target_url }}
+                        </el-descriptions-item>
+                    </el-descriptions>
+                </div>
+
+                <div class="detail-response-section">
+                    <h4>实时响应流</h4>
+                    <div class="response-stream-container">
+                        <div class="response-stream-content">
+                            <pre v-if="selectedRealtimeRequest.responseText">{{ selectedRealtimeRequest.responseText }}</pre>
+                            <div v-else class="no-response">暂无响应数据...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="detail-headers-section" v-if="selectedRealtimeRequest.request_headers">
+                    <h4>请求头</h4>
+                    <div class="headers-content">
+                        <pre>{{ JSON.stringify(selectedRealtimeRequest.request_headers, null, 2) }}</pre>
+                    </div>
+                </div>
+            </div>
+        </el-drawer>
     </div>
 
     <!-- Vue 3 -->
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <!-- Element Plus -->
-    <script src="https://unpkg.com/element-plus/dist/index.full.js"></script>
+    <script src="https://unpkg.com/element-plus@2.8.0/dist/index.full.js"></script>
+    <!-- 实时连接管理器 -->
+    <script src="/static/realtime-manager.js"></script>
     <!-- 应用逻辑 -->
     <script src="/static/app.js"></script>
     
