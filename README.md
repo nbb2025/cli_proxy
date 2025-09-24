@@ -72,42 +72,14 @@ src/
     ├── platform_helper.py     # 平台工具
     └── usage_parser.py        # 使用统计解析器
 ```
+## 快速开始
 
-## 安装与配置
-
-### 1. 安装依赖
-
+### 安装
 ```bash
-pip install -e .
+pip install --user --force-reinstall ./dist/clp-1.8.0-py3-none-any.whl
 ```
 
-### 2. 配置文件
-
-工具会在用户主目录下创建 `~/.clp/` 目录存储配置：
-
-- `~/.clp/claude.json` - Claude服务配置
-- `~/.clp/codex.json` - Codex服务配置
-- `~/.clp/run/` - 运行时文件（PID、日志）
-- `~/.clp/data/` - 数据文件（请求日志、统计数据）
-
-### 3. 配置格式示例
-
-```json
-{
-  "prod": {
-    "base_url": "https://api.anthropic.com",
-    "auth_token": "your-auth-token",
-    "api_key": "your-api-key"
-  },
-  "dev": {
-    "base_url": "https://api.anthropic.com",
-    "auth_token": "your-dev-token",
-    "api_key": "your-dev-key"
-  }
-}
-```
-
-## 使用方法
+## 命令使用方法
 
 ### 基本命令
 
@@ -128,7 +100,7 @@ clp status
 clp ui
 ```
 
-### 配置管理
+### 配置管理（可在UI界面快速添加和切换配置）
 
 ```bash
 # 列出Claude的所有配置
@@ -144,13 +116,66 @@ clp active claude prod
 clp active codex dev
 ```
 
-### 服务端口
+### claude 使用方法
+1. 修改 `~/.claude/settings.json` Claude配置文件，连接本地CLI代理服务
+```json
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "-",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:3210",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "32000",
+    "MAX_THINKING_TOKENS": "30000",
+    "DISABLE_AUTOUPDATER": "1"
+  },
+  "permissions": {
+    "allow": [],
+    "deny": []
+  }
+}
+```
+2. 重启Claude命令行即可
 
-- **Claude代理**: http://localhost:3210
-- **Codex代理**: http://localhost:3211
-- **Web UI**: http://localhost:3300
+### codex 使用方法
+1. 修改 `~/.codex/config.toml` Codex配置文件，连接本地CLI代理服务
+```properties
+model_provider = "local"
+model = "gpt-5-codex"
+model_reasoning_effort = "high"
+model_reasoning_summary_format = "experimental"
+network_access = "enabled"
+disable_response_storage = true
+show_raw_agent_reasoning = true
+
+[model_providers.local]
+name = "local"
+base_url = "http://127.0.0.1:3211"
+wire_api = "responses"
+```
+2. 修改 `~/.codex/auth.json` (没有就创建一个)
+```json
+{
+  "OPENAI_API_KEY": "-"
+}
+```
+3. 重启codex即可
 
 ## 开发指南
+
+### 1. 安装依赖
+
+```bash
+pip install -e .
+```
+
+### 2. 配置文件
+
+工具会在用户主目录下创建 `~/.clp/` 目录存储配置：
+
+- `~/.clp/claude.json` - Claude服务配置
+- `~/.clp/codex.json` - Codex服务配置
+- `~/.clp/run/` - 运行时文件（PID、日志）
+- `~/.clp/data/` - 数据文件（请求日志、统计数据）
 
 ### 添加新的AI服务
 
