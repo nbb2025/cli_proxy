@@ -134,7 +134,7 @@ clp active codex dev
   }
 }
 ```
-2. 重启Claude命令行即可
+2. 重启Claude命令行即可（确保本地代理已启动 clp start）
 
 ### codex 使用方法
 1. 修改 `~/.codex/config.toml` Codex配置文件，连接本地CLI代理服务
@@ -158,7 +158,7 @@ wire_api = "responses"
   "OPENAI_API_KEY": "-"
 }
 ```
-3. 重启codex即可
+3. 重启codex即可（确保本地代理已启动 clp start）
 
 ## 开发指南
 
@@ -219,6 +219,8 @@ MIT License
 
 gjp
 
+## 赞助
+![Token 使用统计](assets/donate_image.jpg)
 ---
 
 **注意**: 首次运行时，工具会以占位模式启动，请编辑相应的配置文件后重启服务。
