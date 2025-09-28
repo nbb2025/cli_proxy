@@ -17,6 +17,8 @@ CLP 是一个本地CLI代理工具，用于管理和代理AI服务（如Claude�
 ![请求过滤配置](assets/filter.jpeg)
 ![请求详情](assets/request_detail.jpeg)
 ![Token 使用统计](assets/token_use.jpeg)
+![负载均衡](assets/lb.jpeg)
+![模型路由配置](assets/model_router.jpeg)
 
 ## 主要功能
 
@@ -77,6 +79,8 @@ src/
 ### 安装
 ```bash
 pip install --user --force-reinstall ./dist/clp-1.8.0-py3-none-any.whl
+pip install --user --force-reinstall ./dist/clp-1.9.0-py3-none-any.whl
+# 更新后需要重启服务新功能才生效 clp restart
 ```
 
 ## 命令使用方法
