@@ -190,12 +190,49 @@ class BaseProxyService(ABC):
                 if total_response_bytes is not None:
                     log_entry['response_bytes'] = total_response_bytes
 
-                with open(self.traffic_log, 'a', encoding='utf-8') as f:
-                    f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+                # 限制日志文件为最多100条记录
+                self._maintain_log_limit(log_entry)
             except Exception as exc:
                 print(f"日志记录失败: {exc}")
 
         await asyncio.to_thread(_write_log)
+
+    def _maintain_log_limit(self, new_log_entry: dict, max_logs: int = 100):
+        """维护日志文件条数限制，只保留最近的max_logs条记录"""
+        try:
+            # 读取现有日志
+            existing_logs = []
+            if self.traffic_log.exists():
+                with open(self.traffic_log, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                log_data = json.loads(line)
+                                existing_logs.append(log_data)
+                            except json.JSONDecodeError:
+                                continue
+            
+            # 添加新日志条目
+            existing_logs.append(new_log_entry)
+            
+            # 只保留最近的max_logs条记录
+            if len(existing_logs) > max_logs:
+                existing_logs = existing_logs[-max_logs:]
+            
+            # 重写整个日志文件
+            with open(self.traffic_log, 'w', encoding='utf-8') as f:
+                for log_entry in existing_logs:
+                    f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+                    
+        except Exception as exc:
+            print(f"维护日志文件限制失败: {exc}")
+            # 如果维护失败，直接追加写入
+            try:
+                with open(self.traffic_log, 'a', encoding='utf-8') as f:
+                    f.write(json.dumps(new_log_entry, ensure_ascii=False) + '\n')
+            except Exception as fallback_exc:
+                print(f"备用日志写入也失败: {fallback_exc}")
 
     def build_target_param(self, path: str, request: Request, body: bytes) -> Tuple[str, Dict, bytes, Optional[str]]:
         """

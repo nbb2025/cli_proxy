@@ -35,6 +35,7 @@
                             </div>
                             <div class="service-info">
                                 <p><strong>PID:</strong> <span>{{ services.claude.pid || '-' }}</span></p>
+                                <p><strong>端口:</strong> 3210</p>
                                 <p><strong>转发目标:</strong> 
                                     <el-select 
                                         v-model="services.claude.config" 
@@ -50,7 +51,6 @@
                                         </el-option>
                                     </el-select>
                                 </p>
-                                <p><strong>端口:</strong> 3210</p>
                             </div>
                         </div>
 
@@ -62,6 +62,7 @@
                             </div>
                             <div class="service-info">
                                 <p><strong>PID:</strong> <span>{{ services.codex.pid || '-' }}</span></p>
+                                <p><strong>端口:</strong> 3211</p>
                                 <p><strong>转发目标:</strong> 
                                     <el-select 
                                         v-model="services.codex.config" 
@@ -77,7 +78,6 @@
                                         </el-option>
                                     </el-select>
                                 </p>
-                                <p><strong>端口:</strong> 3211</p>
                             </div>
                         </div>
                     </div>
@@ -87,9 +87,10 @@
                 <section class="stats-section">
                     <h2>系统统计</h2>
                     <div class="stats-grid">
-                        <div class="stat-card compact">
+                        <div class="stat-card clickable" @click="viewAllLogs">
                             <h4>总请求数</h4>
                             <div class="stat-value">{{ stats.requestCount || 0 }}</div>
+                            <div class="stat-hint">点击查看请求日志</div>
                         </div>
                         <div class="stat-card clickable" @click="openConfigDrawer">
                             <h4>配置数量</h4>
@@ -109,111 +110,7 @@
                     </div>
                 </section>
 
-                <!-- 实时请求 -->
-                <section class="realtime-section">
-                    <div class="realtime-header">
-                        <h2>实时请求</h2>
-                        <div class="connection-status">
-                            <span v-for="(connected, service) in connectionStatus" :key="service"
-                                  :class="['status-indicator-small', connected ? 'connected' : 'disconnected']">
-                                {{ service }}: {{ connected ? '已连接' : '断开' }}
-                            </span>
-                            <el-button type="text" @click="reconnectRealtime" size="small">
-                                重连
-                            </el-button>
-                        </div>
-                    </div>
 
-                    <div class="realtime-container">
-                        <div class="realtime-table-header">
-                            <span>发起时间</span>
-                            <span>服务</span>
-                            <span>状态</span>
-                            <span>耗时</span>
-                            <span>操作</span>
-                        </div>
-
-                        <div class="realtime-entries">
-                            <div v-if="realtimeRequests.length === 0" class="no-realtime-requests">
-                                <span>无实时请求</span>
-                            </div>
-                            <div v-else v-for="req in realtimeRequests.slice(0, 4)"
-                                 :key="req.request_id"
-                                 class="realtime-entry">
-                                <span>{{ formatRealtimeTime(req.start_time) }}</span>
-                                <span>{{ req.service }} [{{ req.channel }}]</span>
-                                <span>
-                                    <el-tag :type="getStatusDisplay(req.status).type" size="small">
-                                        {{ getStatusDisplay(req.status).text }}
-                                    </el-tag>
-                                </span>
-                                <span>{{ req.displayDuration }}ms</span>
-                                <span>
-                                    <el-button type="text" size="small" @click="showRealtimeDetail(req)">
-                                        详情
-                                    </el-button>
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- 请求日志 -->
-                <section class="logs-section">
-                    <div class="logs-header">
-                        <h2>最近请求日志</h2>
-                        <div class="logs-actions">
-                            <el-button type="success" @click="viewAllLogs" size="small">
-                                查看所有日志
-                            </el-button>
-                            <el-button type="danger" @click="clearAllLogs" size="small">
-                                清空日志
-                            </el-button>
-                        </div>
-                    </div>
-                    <div class="logs-container">
-                        <div class="logs-table">
-                            <div class="log-header">
-                                <span>时间</span>
-                                <span>服务</span>
-                                <span>URL</span>
-                                <span>状态</span>
-                                <span>耗时</span>
-                                <span>Usage</span>
-                                <span>操作</span>
-                            </div>
-                            <div class="log-entries" v-loading="logsLoading">
-                                <div v-if="logs.length === 0" class="log-entry loading">
-                                    <span>{{ logsLoading ? '加载日志数据...' : '暂无日志数据' }}</span>
-                                </div>
-                                <div v-else v-for="log in logs" :key="log.id || log.timestamp" class="log-entry">
-                                    <span>{{ formatTimestamp(log.timestamp) }}</span>
-                                    <span :title="formatChannelName(log.channel)" style="white-space: pre-line;">{{ formatServiceWithChannel(log.service, log.channel) }}</span>
-                                    <span :title="log.path">{{ formatMethodWithURL(log.method, log.path) }}</span>
-                                    <span>
-                                        <el-tag 
-                                            :type="getStatusTagType(log.status_code)"
-                                            size="small">
-                                            {{ log.status_code || '-' }}
-                                        </el-tag>
-                                    </span>
-                                    <span>{{ log.duration_ms ? `${log.duration_ms}ms` : '-' }}</span>
-                                    <span class="usage-cell" :title="formatUsageSummary(log.usage, log.service)">
-                                        {{ formatUsageSummary(log.usage, log.service) }}
-                                    </span>
-                                    <span>
-                                        <el-button 
-                                            type="text" 
-                                            size="small"
-                                            @click="showLogDetail(log)">
-                                            详情
-                                        </el-button>
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
             </main>
         </div>
 
@@ -266,15 +163,7 @@
                                     <el-button
                                         type="success"
                                         size="small"
-                                        icon="el-icon-plus"
                                         @click="startAddingSite('claude')">添加站点
-                                    </el-button>
-                                    <el-button
-                                        type="primary"
-                                        size="small"
-                                        @click="saveConfig"
-                                        :loading="configSaving">
-                                        保存配置
                                     </el-button>
                                 </div>
                             </div>
@@ -457,15 +346,7 @@
                                     <el-button
                                         type="success"
                                         size="small"
-                                        icon="el-icon-plus"
                                         @click="startAddingSite('codex')">添加站点
-                                    </el-button>
-                                    <el-button
-                                        type="primary"
-                                        size="small"
-                                        @click="saveConfig"
-                                        :loading="configSaving">
-                                        保存配置
                                     </el-button>
                                 </div>
                             </div>
@@ -888,27 +769,97 @@
         <!-- 所有日志侧边栏 -->
         <el-drawer 
             v-model="allLogsVisible" 
-            title="所有请求日志" 
-            size="85%"
+            title="请求详情" 
+            size="50%"
             class="all-logs-drawer">
             
             <div class="all-logs-content" v-loading="allLogsLoading">
-                <div class="all-logs-stats">
-                    <span>共 {{ allLogs.length }} 条日志记录</span>
-                    <div class="stats-actions">
-                        <el-button 
-                            type="primary" 
-                            size="small" 
-                            @click="refreshAllLogs"
-                            :loading="allLogsLoading">
-                            刷新
-                        </el-button>
-                        <el-button 
-                            type="danger" 
-                            size="small" 
-                            @click="clearAllLogs">
-                            清空日志
-                        </el-button>
+                <!-- 实时请求模块 -->
+                <section class="realtime-section">
+                    <div class="realtime-header">
+                        <h3>实时请求</h3>
+                        <div class="realtime-status-actions">
+                            <div class="connection-status">
+                                <el-tag v-if="connectionStatus.claude" type="success" size="small">Claude 已连接</el-tag>
+                                <el-tag v-else type="danger" size="small">Claude 未连接</el-tag>
+                                <el-tag v-if="connectionStatus.codex" type="success" size="small">Codex 已连接</el-tag>
+                                <el-tag v-else type="danger" size="small">Codex 未连接</el-tag>
+                            </div>
+                            <el-button 
+                                v-if="!connectionStatus.claude && !connectionStatus.codex"
+                                type="primary" 
+                                size="small" 
+                                @click="reconnectRealtime">
+                                连接
+                            </el-button>
+                            <el-button 
+                                v-else
+                                type="danger" 
+                                size="small" 
+                                @click="disconnectRealtime">
+                                断开
+                            </el-button>
+                        </div>
+                    </div>
+                    <div class="realtime-requests-container">
+                        <div v-if="realtimeRequests.length === 0" class="no-realtime-requests">
+                            <span>暂无实时请求</span>
+                        </div>
+                        <div v-else class="realtime-container">
+                            <div class="realtime-table-header">
+                                <span>服务</span>
+                                <span>路径</span>
+                                <span>状态</span>
+                                <span>耗时</span>
+                                <span>操作</span>
+                            </div>
+                            <div class="realtime-entries">
+                                <div 
+                                    v-for="request in realtimeRequests" 
+                                    :key="request.request_id"
+                                    class="realtime-entry"
+                                    @click="showRealtimeDetail(request)">
+                                    <span>{{ request.service }}</span>
+                                    <span :title="request.path">{{ request.path }}</span>
+                                    <span>
+                                        <el-tag :type="getStatusDisplay(request.status).type" size="small">
+                                            {{ getStatusDisplay(request.status).text }}
+                                        </el-tag>
+                                    </span>
+                                    <span>{{ request.displayDuration }}ms</span>
+                                    <span>
+                                        <el-button 
+                                            type="primary" 
+                                            size="small" 
+                                            link
+                                            @click.stop="showRealtimeDetail(request)">
+                                            详情
+                                        </el-button>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <div class="history-requests-section">
+                    <h3>历史所有请求</h3>
+                    <div class="all-logs-stats">
+                        <span>共 {{ allLogs.length }} 条日志记录（最近100条）</span>
+                        <div class="stats-actions">
+                            <el-button 
+                                type="primary" 
+                                size="small" 
+                                @click="refreshAllLogs"
+                                :loading="allLogsLoading">
+                                刷新
+                            </el-button>
+                            <el-button 
+                                type="danger" 
+                                size="small" 
+                                @click="clearAllLogs">
+                                清空日志
+                            </el-button>
+                        </div>
                     </div>
                 </div>
                 
@@ -929,7 +880,7 @@
                             <div v-else v-for="log in allLogs" :key="log.id || log.timestamp" class="log-entry">
                                 <span>{{ formatTimestamp(log.timestamp) }}</span>
                                 <span :title="formatChannelName(log.channel)" style="white-space: pre-line;">{{ formatServiceWithChannel(log.service, log.channel) }}</span>
-                                <span :title="log.path">{{ formatMethodWithURL(log.method, log.path) }}</span>
+                                <span class="url-column" :title="log.path">{{ formatMethodWithURL(log.method, log.path) }}</span>
                                 <span>
                                     <el-tag 
                                         :type="getStatusTagType(log.status_code)"

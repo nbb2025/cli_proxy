@@ -319,6 +319,36 @@ class RealTimeManager {
     }
 
     /**
+     * 断开所有连接（但不销毁管理器）
+     */
+    disconnectAll() {
+        console.log('手动断开所有服务连接...');
+        
+        // 关闭所有连接
+        this.connections.forEach((ws, serviceName) => {
+            if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+                console.log(`断开 ${serviceName} WebSocket连接`);
+                ws.close(1000, '用户手动断开');
+            }
+        });
+
+        // 清理连接状态
+        this.connections.clear();
+        this.reconnectAttempts.clear();
+        
+        // 更新连接状态为false
+        this.services.forEach(service => {
+            this.connectionStatus.set(service.name, false);
+            // 发送断开连接事件
+            this.emitEvent({
+                type: 'connection',
+                service: service.name,
+                status: 'disconnected'
+            });
+        });
+    }
+
+    /**
      * 销毁管理器
      */
     destroy() {

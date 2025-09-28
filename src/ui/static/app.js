@@ -856,7 +856,7 @@ const app = createApp({
             });
         };
 
-        const confirmAddSite = (service) => {
+        const confirmAddSite = async (service) => {
             if (newSiteData[service].name.trim()) {
                 // 如果新站点设置为激活，先关闭其他站点
                 if (newSiteData[service].active) {
@@ -868,6 +868,9 @@ const app = createApp({
                 friendlyConfigs[service].unshift({...newSiteData[service]});
                 editingNewSite[service] = false;
                 syncFormToJson(service);
+
+                // 自动保存配置
+                await saveConfigForService(service);
             }
         };
 
@@ -882,9 +885,31 @@ const app = createApp({
             };
         };
 
-        const removeConfigSite = (service, index) => {
-            friendlyConfigs[service].splice(index, 1);
-            syncFormToJson(service);
+        const removeConfigSite = async (service, index) => {
+            const siteName = friendlyConfigs[service][index]?.name || '未命名站点';
+            try {
+                await ElMessageBox.confirm(
+                    `确定要删除站点 "${siteName}" 吗？此操作不可撤销。`,
+                    '确认删除站点',
+                    {
+                        confirmButtonText: '确定',
+                        cancelButtonText: '取消',
+                        type: 'warning',
+                    }
+                );
+                
+                friendlyConfigs[service].splice(index, 1);
+                syncFormToJson(service);
+                
+                // 自动保存配置
+                await saveConfigForService(service);
+                
+                ElMessage.success('站点删除成功');
+            } catch (error) {
+                if (error !== 'cancel') {
+                    ElMessage.error('删除站点失败: ' + error.message);
+                }
+            }
         };
 
         // 处理激活状态变化（单选逻辑）
@@ -989,15 +1014,14 @@ const app = createApp({
             }
         };
 
-        const saveConfig = async () => {
-            const service = activeConfigTab.value;
+        const saveConfigForService = async (service) => {
             const content = configContents[service];
 
             if (!content.trim()) {
                 ElMessage.warning('配置内容不能为空');
                 return;
             }
-            
+
             // 验证JSON格式
             try {
                 JSON.parse(content);
@@ -1005,7 +1029,7 @@ const app = createApp({
                 ElMessage.error('JSON格式错误: ' + e.message);
                 return;
             }
-            
+
             configSaving.value = true;
             try {
                 const result = await fetchWithErrorHandling(`/api/config/${service}`, {
@@ -1015,7 +1039,7 @@ const app = createApp({
                     },
                     body: JSON.stringify({ content })
                 });
-                
+
                 if (result.success) {
                     ElMessage.success(result.message || '配置保存成功');
                     await loadData();
@@ -1027,6 +1051,11 @@ const app = createApp({
             } finally {
                 configSaving.value = false;
             }
+        };
+
+        const saveConfig = async () => {
+            const service = activeConfigTab.value;
+            await saveConfigForService(service);
         };
         
         // 过滤器抽屉相关
@@ -1205,12 +1234,14 @@ const app = createApp({
             decodedResponseContent.value = decodeBodyContent(log.response_content);
         };
         
-        // 加载所有日志
+        // 加载所有日志（默认只显示最近100条）
         const loadAllLogs = async () => {
             allLogsLoading.value = true;
             try {
                 const data = await fetchWithErrorHandling('/api/logs/all');
-                allLogs.value = Array.isArray(data) ? data : [];
+                const logs = Array.isArray(data) ? data : [];
+                // 只保留最近100条记录
+                allLogs.value = logs.slice(0, 100);
             } catch (error) {
                 ElMessage.error('获取所有日志失败: ' + error.message);
                 allLogs.value = [];
@@ -1347,11 +1378,12 @@ const app = createApp({
                     }
                 });
 
-                // 延迟连接，等待代理服务启动
-                setTimeout(() => {
-                    realtimeManager.value.connectAll();
-                    console.log('实时连接管理器初始化成功');
-                }, 1000); // 延迟1秒再连接
+                // 禁用自动连接，改为手动连接模式
+                // setTimeout(() => {
+                //     realtimeManager.value.connectAll();
+                //     console.log('实时连接管理器初始化成功');
+                // }, 1000); // 延迟1秒再连接
+                console.log('实时连接管理器初始化成功，请手动点击重连按钮连接服务器');
             } catch (error) {
                 console.error('初始化实时连接失败:', error);
                 ElMessage.error('实时连接初始化失败: ' + error.message);
@@ -1503,6 +1535,14 @@ const app = createApp({
             }
         };
 
+        const disconnectRealtime = () => {
+            if (realtimeManager.value) {
+                console.log('手动断开实时服务...');
+                realtimeManager.value.disconnectAll();
+                ElMessage.info('已断开实时服务连接');
+            }
+        };
+
         // 添加调试功能
         const checkConnectionStatus = () => {
             if (realtimeManager.value) {
@@ -1632,7 +1672,8 @@ const app = createApp({
             formatRealtimeTime,
             getStatusDisplay,
             showRealtimeDetail,
-            reconnectRealtime
+            reconnectRealtime,
+            disconnectRealtime
         };
     }
 });

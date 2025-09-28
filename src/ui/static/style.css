@@ -227,7 +227,7 @@ header h1 {
 
 .log-header {
     display: grid;
-    grid-template-columns: 160px 150px minmax(200px, 1fr) 70px 80px 200px 80px;
+    grid-template-columns: 160px 150px minmax(100px, 1fr) 70px 80px 200px 80px;
     gap: 12px;
     padding: 12px 16px;
     background: #ecf0f1;
@@ -243,7 +243,7 @@ header h1 {
 
 .log-entry {
     display: grid;
-    grid-template-columns: 160px 150px minmax(200px, 1fr) 70px 80px 200px 80px;
+    grid-template-columns: 160px 150px minmax(100px, 1fr) 70px 80px 200px 80px;
     gap: 12px;
     padding: 8px 16px;
     font-size: 13px;
@@ -259,10 +259,12 @@ header h1 {
 
 /* URL列换行样式 */
 .log-entry span:nth-child(3),
-.all-log-entries .log-entry span:nth-child(3) {
+.all-log-entries .log-entry span:nth-child(3),
+.url-column {
     word-break: break-all;
     overflow-wrap: break-word;
     line-height: 1.4;
+    white-space: normal;
 }
 
 .usage-cell {
@@ -837,6 +839,17 @@ header h1 {
     overflow: hidden;
 }
 
+.history-requests-section {
+    margin-bottom: 16px;
+}
+
+.history-requests-section h3 {
+    margin: 0 0 12px 0;
+    color: #2c3e50;
+    font-size: 18px;
+    font-weight: 600;
+}
+
 .all-logs-stats {
     display: flex;
     justify-content: space-between;
@@ -1378,6 +1391,12 @@ header h1 {
     margin: 0;
 }
 
+.realtime-status-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
 .connection-status {
     display: flex;
     align-items: center;
@@ -1433,6 +1452,15 @@ header h1 {
     font-size: 13px;
     border-bottom: 1px solid #ecf0f1;
     align-items: center;
+    cursor: pointer;
+}
+
+/* 实时请求路径列换行样式 */
+.realtime-entry span:nth-child(2) {
+    word-break: break-all;
+    overflow-wrap: break-word;
+    line-height: 1.4;
+    white-space: normal;
 }
 
 .realtime-entry:hover {
