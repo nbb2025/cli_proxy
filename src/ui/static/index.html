@@ -110,6 +110,67 @@
                     </div>
                 </section>
 
+                <!-- 模型路由管理 -->
+                <section class="routing-section">
+                    <h2>模型路由管理</h2>
+                    <div class="routing-grid">
+                        <div class="routing-card" 
+                             :class="{ active: routingMode === 'default' }"
+                             @click="selectRoutingMode('default')">
+                            <div class="routing-card-header">
+                                <i class="el-icon-right"></i>
+                                <h4>默认路由</h4>
+                            </div>
+                            <div class="routing-card-description">
+                                原样转发请求到目标站点，不做任何模型参数修改
+                            </div>
+                            <div class="routing-card-status" v-if="routingMode === 'default'">
+                                <el-tag type="success" size="small">已激活</el-tag>
+                            </div>
+                        </div>
+                        
+                        <div class="routing-card" 
+                             :class="{ active: routingMode === 'model-mapping' }"
+                             @click="selectRoutingMode('model-mapping')">
+                            <div class="routing-card-header">
+                                <i class="el-icon-s-operation"></i>
+                                <h4>模型→模型映射</h4>
+                            </div>
+                            <div class="routing-card-description">
+                                将源请求模型映射为其他模型，如sonnet4→opus4
+                            </div>
+                            <div class="routing-card-status" v-if="routingMode === 'model-mapping'">
+                                <el-tag type="success" size="small">已激活</el-tag>
+                            </div>
+                            <div class="routing-card-actions" v-if="routingMode === 'model-mapping'">
+                                <el-button type="text" size="small" @click.stop="openModelMappingDrawer">
+                                    <i class="el-icon-setting"></i> 配置映射
+                                </el-button>
+                            </div>
+                        </div>
+                        
+                        <div class="routing-card" 
+                             :class="{ active: routingMode === 'config-mapping' }"
+                             @click="selectRoutingMode('config-mapping')">
+                            <div class="routing-card-header">
+                                <i class="el-icon-s-tools"></i>
+                                <h4>模型→配置映射</h4>
+                            </div>
+                            <div class="routing-card-description">
+                                根据请求模型选择不同配置，如sonnet4用配置A
+                            </div>
+                            <div class="routing-card-status" v-if="routingMode === 'config-mapping'">
+                                <el-tag type="success" size="small">已激活</el-tag>
+                            </div>
+                            <div class="routing-card-actions" v-if="routingMode === 'config-mapping'">
+                                <el-button type="text" size="small" @click.stop="openConfigMappingDrawer">
+                                    <i class="el-icon-setting"></i> 配置映射
+                                </el-button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
 
             </main>
         </div>
@@ -819,7 +880,7 @@
                                     :key="request.request_id"
                                     class="realtime-entry"
                                     @click="showRealtimeDetail(request)">
-                                    <span>{{ request.service }}</span>
+                                    <span>{{ request.service }}{{ request.channel ? ` [${request.channel}]` : '' }}</span>
                                     <span :title="request.path">{{ request.path }}</span>
                                     <span>
                                         <el-tag :type="getStatusDisplay(request.status).type" size="small">
@@ -1123,6 +1184,246 @@
                     <div class="headers-content">
                         <pre>{{ JSON.stringify(selectedRealtimeRequest.request_headers, null, 2) }}</pre>
                     </div>
+                </div>
+            </div>
+        </el-drawer>
+
+        <!-- 模型→模型映射配置抽屉 -->
+        <el-drawer 
+            v-model="modelMappingDrawerVisible" 
+            title="模型→模型映射配置" 
+            size="60%" 
+            direction="rtl">
+            <div class="mapping-drawer-content">
+                <div class="mapping-tabs">
+                    <el-tabs type="border-card" v-model="activeModelMappingTab">
+                        <el-tab-pane label="Claude 模型映射" name="claude">
+                            <div class="mapping-section">
+                                <div class="mapping-header">
+                                    <h4>Claude 模型映射规则</h4>
+                                    <el-button type="primary" size="small" @click="addModelMapping('claude')">
+                                        <i class="el-icon-plus"></i> 添加映射
+                                    </el-button>
+                                </div>
+                                
+                                <div class="mapping-list" v-if="routingConfig.modelMappings.claude.length > 0">
+                                    <div class="mapping-item" v-for="(mapping, index) in routingConfig.modelMappings.claude" :key="index">
+                                        <div class="mapping-form">
+                                            <div class="mapping-field">
+                                                <label>源模型:</label>
+                                                <el-input 
+                                                    v-model="mapping.source" 
+                                                    placeholder="例如: claude-3-5-sonnet-20241022"
+                                                    size="small">
+                                                </el-input>
+                                            </div>
+                                            <div class="mapping-arrow">→</div>
+                                            <div class="mapping-field">
+                                                <label>目标模型:</label>
+                                                <el-input 
+                                                    v-model="mapping.target" 
+                                                    placeholder="例如: claude-3-opus-20240229"
+                                                    size="small">
+                                                </el-input>
+                                            </div>
+                                            <div class="mapping-actions">
+                                                <el-button 
+                                                    type="danger" 
+                                                    size="small" 
+                                                    @click="removeModelMapping('claude', index)">
+                                                    删除
+                                                </el-button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="empty-mapping" v-else>
+                                    <p>暂无映射规则，点击"添加映射"按钮创建第一个规则</p>
+                                </div>
+                            </div>
+                        </el-tab-pane>
+                        
+                        <el-tab-pane label="Codex 模型映射" name="codex">
+                            <div class="mapping-section">
+                                <div class="mapping-header">
+                                    <h4>Codex 模型映射规则</h4>
+                                    <el-button type="primary" size="small" @click="addModelMapping('codex')">
+                                        <i class="el-icon-plus"></i> 添加映射
+                                    </el-button>
+                                </div>
+                                
+                                <div class="mapping-list" v-if="routingConfig.modelMappings.codex.length > 0">
+                                    <div class="mapping-item" v-for="(mapping, index) in routingConfig.modelMappings.codex" :key="index">
+                                        <div class="mapping-form">
+                                            <div class="mapping-field">
+                                                <label>源模型:</label>
+                                                <el-input 
+                                                    v-model="mapping.source" 
+                                                    placeholder="例如: gpt-4o"
+                                                    size="small">
+                                                </el-input>
+                                            </div>
+                                            <div class="mapping-arrow">→</div>
+                                            <div class="mapping-field">
+                                                <label>目标模型:</label>
+                                                <el-input 
+                                                    v-model="mapping.target" 
+                                                    placeholder="例如: gpt-4-turbo"
+                                                    size="small">
+                                                </el-input>
+                                            </div>
+                                            <div class="mapping-actions">
+                                                <el-button 
+                                                    type="danger" 
+                                                    size="small" 
+                                                    @click="removeModelMapping('codex', index)">
+                                                    删除
+                                                </el-button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="empty-mapping" v-else>
+                                    <p>暂无映射规则，点击"添加映射"按钮创建第一个规则</p>
+                                </div>
+                            </div>
+                        </el-tab-pane>
+                    </el-tabs>
+                </div>
+                
+                <div class="mapping-footer">
+                    <el-button @click="closeModelMappingDrawer">取消</el-button>
+                    <el-button type="primary" @click="saveRoutingConfig" :loading="routingConfigSaving">
+                        保存配置
+                    </el-button>
+                </div>
+            </div>
+        </el-drawer>
+
+        <!-- 模型→配置映射配置抽屉 -->
+        <el-drawer 
+            v-model="configMappingDrawerVisible" 
+            title="模型→配置映射配置" 
+            size="60%" 
+            direction="rtl">
+            <div class="mapping-drawer-content">
+                <div class="mapping-tabs">
+                    <el-tabs type="border-card" v-model="activeConfigMappingTab">
+                        <el-tab-pane label="Claude 配置映射" name="claude">
+                            <div class="mapping-section">
+                                <div class="mapping-header">
+                                    <h4>Claude 模型配置映射规则</h4>
+                                    <el-button type="primary" size="small" @click="addConfigMapping('claude')">
+                                        <i class="el-icon-plus"></i> 添加映射
+                                    </el-button>
+                                </div>
+                                
+                                <div class="mapping-list" v-if="routingConfig.configMappings.claude.length > 0">
+                                    <div class="mapping-item" v-for="(mapping, index) in routingConfig.configMappings.claude" :key="index">
+                                        <div class="mapping-form">
+                                            <div class="mapping-field">
+                                                <label>模型名称:</label>
+                                                <el-input 
+                                                    v-model="mapping.model" 
+                                                    placeholder="例如: claude-3-5-sonnet-20241022"
+                                                    size="small">
+                                                </el-input>
+                                            </div>
+                                            <div class="mapping-arrow">→</div>
+                                            <div class="mapping-field">
+                                                <label>使用配置:</label>
+                                                <el-select 
+                                                    v-model="mapping.config" 
+                                                    placeholder="选择配置"
+                                                    size="small">
+                                                    <el-option 
+                                                        v-for="config in claudeConfigs" 
+                                                        :key="config" 
+                                                        :label="config" 
+                                                        :value="config">
+                                                    </el-option>
+                                                </el-select>
+                                            </div>
+                                            <div class="mapping-actions">
+                                                <el-button 
+                                                    type="danger" 
+                                                    size="small" 
+                                                    @click="removeConfigMapping('claude', index)">
+                                                    删除
+                                                </el-button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="empty-mapping" v-else>
+                                    <p>暂无映射规则，点击"添加映射"按钮创建第一个规则</p>
+                                </div>
+                            </div>
+                        </el-tab-pane>
+                        
+                        <el-tab-pane label="Codex 配置映射" name="codex">
+                            <div class="mapping-section">
+                                <div class="mapping-header">
+                                    <h4>Codex 模型配置映射规则</h4>
+                                    <el-button type="primary" size="small" @click="addConfigMapping('codex')">
+                                        <i class="el-icon-plus"></i> 添加映射
+                                    </el-button>
+                                </div>
+                                
+                                <div class="mapping-list" v-if="routingConfig.configMappings.codex.length > 0">
+                                    <div class="mapping-item" v-for="(mapping, index) in routingConfig.configMappings.codex" :key="index">
+                                        <div class="mapping-form">
+                                            <div class="mapping-field">
+                                                <label>模型名称:</label>
+                                                <el-input 
+                                                    v-model="mapping.model" 
+                                                    placeholder="例如: gpt-4o"
+                                                    size="small">
+                                                </el-input>
+                                            </div>
+                                            <div class="mapping-arrow">→</div>
+                                            <div class="mapping-field">
+                                                <label>使用配置:</label>
+                                                <el-select 
+                                                    v-model="mapping.config" 
+                                                    placeholder="选择配置"
+                                                    size="small">
+                                                    <el-option 
+                                                        v-for="config in codexConfigs" 
+                                                        :key="config" 
+                                                        :label="config" 
+                                                        :value="config">
+                                                    </el-option>
+                                                </el-select>
+                                            </div>
+                                            <div class="mapping-actions">
+                                                <el-button 
+                                                    type="danger" 
+                                                    size="small" 
+                                                    @click="removeConfigMapping('codex', index)">
+                                                    删除
+                                                </el-button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="empty-mapping" v-else>
+                                    <p>暂无映射规则，点击"添加映射"按钮创建第一个规则</p>
+                                </div>
+                            </div>
+                        </el-tab-pane>
+                    </el-tabs>
+                </div>
+                
+                <div class="mapping-footer">
+                    <el-button @click="closeConfigMappingDrawer">取消</el-button>
+                    <el-button type="primary" @click="saveRoutingConfig" :loading="routingConfigSaving">
+                        保存配置
+                    </el-button>
                 </div>
             </div>
         </el-drawer>

@@ -135,6 +135,25 @@ const app = createApp({
         const realtimeManager = ref(null);
         const maxRealtimeRequests = 20;
 
+        // 模型路由管理相关数据
+        const routingMode = ref('default'); // 'default' | 'model-mapping' | 'config-mapping'
+        const modelMappingDrawerVisible = ref(false);
+        const configMappingDrawerVisible = ref(false);
+        const activeModelMappingTab = ref('claude'); // 默认选中claude
+        const activeConfigMappingTab = ref('claude'); // 默认选中claude
+        const routingConfig = reactive({
+            mode: 'default',
+            modelMappings: {
+                claude: [],  // [{ source: 'sonnet4', target: 'opus4' }]
+                codex: []
+            },
+            configMappings: {
+                claude: [],  // [{ model: 'sonnet4', config: 'config_a' }]
+                codex: []
+            }
+        });
+        const routingConfigSaving = ref(false);
+
         // 请求状态映射
         const REQUEST_STATUS = {
             PENDING: { text: '已请求', type: 'warning' },
@@ -623,6 +642,99 @@ const app = createApp({
             }
         };
 
+        // 模型路由管理方法
+        const selectRoutingMode = async (mode) => {
+            routingMode.value = mode;
+            routingConfig.mode = mode;
+            await saveRoutingConfig();
+            ElMessage.success(`已切换到${getRoutingModeText(mode)}模式`);
+        };
+
+        const getRoutingModeText = (mode) => {
+            const modeTexts = {
+                'default': '默认路由',
+                'model-mapping': '模型→模型映射',
+                'config-mapping': '模型→配置映射'
+            };
+            return modeTexts[mode] || mode;
+        };
+
+        const openModelMappingDrawer = () => {
+            modelMappingDrawerVisible.value = true;
+        };
+
+        const openConfigMappingDrawer = () => {
+            configMappingDrawerVisible.value = true;
+        };
+
+        const closeModelMappingDrawer = () => {
+            modelMappingDrawerVisible.value = false;
+        };
+
+        const closeConfigMappingDrawer = () => {
+            configMappingDrawerVisible.value = false;
+        };
+
+        const addModelMapping = (service) => {
+            routingConfig.modelMappings[service].push({
+                source: '',
+                target: ''
+            });
+        };
+
+        const removeModelMapping = (service, index) => {
+            routingConfig.modelMappings[service].splice(index, 1);
+        };
+
+        const addConfigMapping = (service) => {
+            routingConfig.configMappings[service].push({
+                model: '',
+                config: ''
+            });
+        };
+
+        const removeConfigMapping = (service, index) => {
+            routingConfig.configMappings[service].splice(index, 1);
+        };
+
+        const saveRoutingConfig = async () => {
+            routingConfigSaving.value = true;
+            try {
+                const result = await fetchWithErrorHandling('/api/routing/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(routingConfig)
+                });
+
+                if (result.success) {
+                    ElMessage.success('路由配置保存成功');
+                } else {
+                    ElMessage.error('路由配置保存失败: ' + (result.error || '未知错误'));
+                }
+            } catch (error) {
+                ElMessage.error('路由配置保存失败: ' + error.message);
+            } finally {
+                routingConfigSaving.value = false;
+            }
+        };
+
+        const loadRoutingConfig = async () => {
+            try {
+                const data = await fetchWithErrorHandling('/api/routing/config');
+                if (data.config) {
+                    Object.assign(routingConfig, data.config);
+                    routingMode.value = data.config.mode || 'default';
+                }
+            } catch (error) {
+                console.error('加载路由配置失败:', error);
+                // 使用默认配置
+                routingMode.value = 'default';
+                routingConfig.mode = 'default';
+            }
+        };
+
         // API 请求方法
         const fetchWithErrorHandling = async (url, options = {}) => {
             try {
@@ -748,7 +860,8 @@ const app = createApp({
                 await loadConfigOptions();
                 await Promise.all([
                     loadStatus(),
-                    loadLogs()
+                    loadLogs(),
+                    loadRoutingConfig()
                 ]);
                 updateLastUpdateTime();
             } catch (error) {
@@ -1673,7 +1786,28 @@ const app = createApp({
             getStatusDisplay,
             showRealtimeDetail,
             reconnectRealtime,
-            disconnectRealtime
+            disconnectRealtime,
+
+            // 模型路由管理相关
+            routingMode,
+            routingConfig,
+            routingConfigSaving,
+            modelMappingDrawerVisible,
+            configMappingDrawerVisible,
+            activeModelMappingTab,
+            activeConfigMappingTab,
+            selectRoutingMode,
+            getRoutingModeText,
+            openModelMappingDrawer,
+            openConfigMappingDrawer,
+            closeModelMappingDrawer,
+            closeConfigMappingDrawer,
+            addModelMapping,
+            removeModelMapping,
+            addConfigMapping,
+            removeConfigMapping,
+            saveRoutingConfig,
+            loadRoutingConfig
         };
     }
 });

@@ -1606,3 +1606,232 @@ header h1 {
         display: none;
     }
 }
+
+/* 模型路由管理样式 */
+.routing-section {
+    margin: 24px 0;
+}
+
+.routing-section h2 {
+    margin-bottom: 16px;
+    color: #333;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.routing-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.routing-card {
+    border: 2px solid #e4e7ed;
+    border-radius: 12px;
+    padding: 20px;
+    background: #fff;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    min-height: 160px;
+    display: flex;
+    flex-direction: column;
+}
+
+.routing-card:hover {
+    border-color: #409eff;
+    box-shadow: 0 4px 12px rgba(64, 158, 255, 0.15);
+    transform: translateY(-2px);
+}
+
+.routing-card.active {
+    border-color: #409eff;
+    background: linear-gradient(135deg, #409eff08, #409eff04);
+    box-shadow: 0 4px 20px rgba(64, 158, 255, 0.2);
+}
+
+.routing-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.routing-card-header i {
+    font-size: 20px;
+    color: #409eff;
+}
+
+.routing-card-header h4 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+}
+
+.routing-card-description {
+    flex: 1;
+    color: #666;
+    font-size: 14px;
+    line-height: 1.5;
+    margin-bottom: 16px;
+}
+
+.routing-card-status {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    margin-bottom: 8px;
+}
+
+.routing-card-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.routing-card-actions .el-button {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+/* 响应式设计 - 路由管理 */
+@media (max-width: 768px) {
+    .routing-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .routing-card {
+        min-height: 140px;
+        padding: 16px;
+    }
+    
+    .routing-card-header h4 {
+        font-size: 15px;
+    }
+    
+    .routing-card-description {
+        font-size: 13px;
+    }
+}
+
+/* 模型路由映射抽屉样式 */
+.mapping-drawer-content {
+    padding: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.mapping-tabs {
+    flex: 1;
+    overflow: hidden;
+}
+
+.mapping-section {
+    padding: 20px;
+}
+
+.mapping-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e4e7ed;
+}
+
+.mapping-header h4 {
+    margin: 0;
+    color: #333;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.mapping-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.mapping-item {
+    background: #f9f9f9;
+    border: 1px solid #e4e7ed;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.mapping-form {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto;
+    gap: 16px;
+    align-items: end;
+}
+
+.mapping-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.mapping-field label {
+    font-size: 14px;
+    font-weight: 500;
+    color: #666;
+}
+
+.mapping-arrow {
+    font-size: 18px;
+    font-weight: bold;
+    color: #409eff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 8px;
+}
+
+.mapping-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.empty-mapping {
+    text-align: center;
+    padding: 40px 20px;
+    color: #999;
+}
+
+.empty-mapping p {
+    margin: 0;
+    font-size: 14px;
+}
+
+.mapping-footer {
+    padding: 20px;
+    border-top: 1px solid #e4e7ed;
+    background: #fafafa;
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+/* 响应式设计 - 映射抽屉 */
+@media (max-width: 768px) {
+    .mapping-form {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    
+    .mapping-arrow {
+        display: none;
+    }
+    
+    .mapping-section {
+        padding: 16px;
+    }
+    
+    .mapping-footer {
+        padding: 16px;
+    }
+}

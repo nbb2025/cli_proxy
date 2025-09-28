@@ -60,6 +60,10 @@ class BaseProxyService(ABC):
                 # 如果重命名失败，则保留旧文件并继续使用旧路径
                 self.traffic_log = old_log
 
+        # 路由配置文件
+        self.routing_config_file = self.data_dir / 'model_router_config.json'
+        self.routing_config = self._load_routing_config()
+
         # 初始化异步HTTP客户端
         self.client = self._create_async_client()
 
@@ -234,6 +238,97 @@ class BaseProxyService(ABC):
             except Exception as fallback_exc:
                 print(f"备用日志写入也失败: {fallback_exc}")
 
+    def _load_routing_config(self) -> dict:
+        """加载路由配置"""
+        try:
+            if self.routing_config_file.exists():
+                with open(self.routing_config_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"加载路由配置失败: {e}")
+        
+        # 返回默认配置
+        return {
+            'mode': 'default',
+            'modelMappings': {
+                'claude': [],
+                'codex': []
+            },
+            'configMappings': {
+                'claude': [],
+                'codex': []
+            }
+        }
+
+    def _apply_model_routing(self, body: bytes) -> Tuple[bytes, Optional[str]]:
+        """应用模型路由规则，返回修改后的body和要使用的配置名"""
+        routing_mode = self.routing_config.get('mode', 'default')
+        
+        if routing_mode == 'default':
+            return body, None
+        
+        try:
+            # 解析请求体
+            if not body:
+                return body, None
+                
+            body_str = body.decode('utf-8')
+            body_json = json.loads(body_str)
+            
+            # 获取模型名称
+            model = body_json.get('model')
+            if not model:
+                return body, None
+            
+            if routing_mode == 'model-mapping':
+                return self._apply_model_mapping(body_json, model, body)
+            elif routing_mode == 'config-mapping':
+                return self._apply_config_mapping(body_json, model, body)
+                
+        except Exception as e:
+            print(f"应用模型路由失败: {e}")
+            
+        return body, None
+
+    def _apply_model_mapping(self, body_json: dict, model: str, original_body: bytes) -> Tuple[bytes, Optional[str]]:
+        """应用模型→模型映射"""
+        mappings = self.routing_config.get('modelMappings', {}).get(self.service_name, [])
+        
+        for mapping in mappings:
+            source = mapping.get('source', '').strip()
+            target = mapping.get('target', '').strip()
+            
+            if source and target and model == source:
+                # 替换模型名称
+                body_json['model'] = target
+                modified_body = json.dumps(body_json, ensure_ascii=False).encode('utf-8')
+                print(f"模型映射: {source} -> {target}")
+                return modified_body, None
+        
+        return original_body, None
+
+    def _apply_config_mapping(self, body_json: dict, model: str, original_body: bytes) -> Tuple[bytes, Optional[str]]:
+        """应用模型→配置映射"""
+        mappings = self.routing_config.get('configMappings', {}).get(self.service_name, [])
+        
+        for mapping in mappings:
+            mapped_model = mapping.get('model', '').strip()
+            target_config = mapping.get('config', '').strip()
+            
+            if mapped_model and target_config and model == mapped_model:
+                # 检查目标配置是否存在
+                if target_config in self.config_manager.configs:
+                    print(f"配置映射: {model} -> {target_config}")
+                    return original_body, target_config
+                else:
+                    print(f"配置映射失败: 配置 {target_config} 不存在")
+        
+        return original_body, None
+
+    def reload_routing_config(self):
+        """重新加载路由配置"""
+        self.routing_config = self._load_routing_config()
+
     def build_target_param(self, path: str, request: Request, body: bytes) -> Tuple[str, Dict, bytes, Optional[str]]:
         """
         构建请求参数
@@ -241,9 +336,22 @@ class BaseProxyService(ABC):
         Returns:
             (target_url, headers, body, active_config_name)
         """
-        # 从配置管理器获取配置
-        active_config_name = self.config_manager.active_config
-        config_data = self.config_manager.configs.get(active_config_name)
+        # 应用模型路由规则
+        modified_body, config_override = self._apply_model_routing(body)
+        
+        # 确定要使用的配置
+        if config_override:
+            # 使用路由指定的配置
+            active_config_name = config_override
+            config_data = self.config_manager.configs.get(active_config_name)
+            if not config_data:
+                print(f"路由指定的配置不存在: {active_config_name}，回退到默认配置")
+                active_config_name = self.config_manager.active_config
+                config_data = self.config_manager.configs.get(active_config_name)
+        else:
+            # 使用默认激活配置
+            active_config_name = self.config_manager.active_config
+            config_data = self.config_manager.configs.get(active_config_name)
         
         if not config_data:
             raise ValueError(f"未找到激活配置: {active_config_name}")
@@ -267,7 +375,7 @@ class BaseProxyService(ABC):
         if config_data.get('auth_token'):
             headers['authorization'] = f'Bearer {config_data["auth_token"]}'
 
-        return target_url, headers, body, active_config_name
+        return target_url, headers, modified_body, active_config_name
 
     @abstractmethod
     def test_endpoint(self, model: str, base_url: str, auth_token: str = None, api_key: str = None, extra_params: dict = None) -> dict:
@@ -349,7 +457,6 @@ class BaseProxyService(ABC):
             )
             response = await self.client.send(request_out, stream=is_stream)
 
-            duration_ms = int((time.time() - start_time) * 1000)
             status_code = response.status_code
 
             # 构造返回头，移除跳跃性头信息

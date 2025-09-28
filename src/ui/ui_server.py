@@ -1,6 +1,7 @@
 import json
 import webbrowser
 import time
+import json
 from pathlib import Path
 from typing import Any, Dict
 from flask import Flask, jsonify, send_file, request
@@ -671,6 +672,72 @@ def switch_config():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/routing/config', methods=['GET'])
+def get_routing_config():
+    """获取模型路由配置"""
+    try:
+        routing_config_file = DATA_DIR / 'model_router_config.json'
+        
+        # 如果配置文件不存在，返回默认配置
+        if not routing_config_file.exists():
+            default_config = {
+                'mode': 'default',
+                'modelMappings': {
+                    'claude': [],
+                    'codex': []
+                },
+                'configMappings': {
+                    'claude': [],
+                    'codex': []
+                }
+            }
+            return jsonify({'config': default_config})
+        
+        with open(routing_config_file, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        return jsonify({'config': config})
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/routing/config', methods=['POST'])
+def save_routing_config():
+    """保存模型路由配置"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No configuration data provided'}), 400
+        
+        # 验证配置格式
+        required_fields = ['mode', 'modelMappings', 'configMappings']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        # 验证模式
+        if data['mode'] not in ['default', 'model-mapping', 'config-mapping']:
+            return jsonify({'error': 'Invalid routing mode'}), 400
+        
+        # 验证映射格式
+        for service in ['claude', 'codex']:
+            if service not in data['modelMappings']:
+                data['modelMappings'][service] = []
+            if service not in data['configMappings']:
+                data['configMappings'][service] = []
+        
+        routing_config_file = DATA_DIR / 'model_router_config.json'
+        
+        # 保存配置
+        with open(routing_config_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        return jsonify({'success': True, 'message': '路由配置保存成功'})
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/test-connection', methods=['POST'])
 def test_connection():
     """测试API端点连通性"""
@@ -723,6 +790,125 @@ def test_connection():
             'target_url': None,
             'error_message': str(e)
         }), 500
+
+@app.route('/api/loadbalance/config', methods=['GET'])
+def get_loadbalance_config():
+    """获取负载均衡配置"""
+    try:
+        lb_config_file = DATA_DIR / 'lb_config.json'
+        
+        # 如果配置文件不存在，返回默认配置
+        if not lb_config_file.exists():
+            default_config = {
+                'mode': 'active-first',
+                'services': {
+                    'claude': {
+                        'enabled': False,
+                        'failover_count': 3,
+                        'current_failures': {},
+                        'excluded_configs': []
+                    },
+                    'codex': {
+                        'enabled': False,
+                        'failover_count': 3,
+                        'current_failures': {},
+                        'excluded_configs': []
+                    }
+                }
+            }
+            return jsonify({'config': default_config})
+        
+        with open(lb_config_file, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        return jsonify({'config': config})
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/loadbalance/config', methods=['POST'])
+def save_loadbalance_config():
+    """保存负载均衡配置"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No configuration data provided'}), 400
+        
+        # 验证配置格式
+        required_fields = ['mode', 'services']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        # 验证模式
+        if data['mode'] not in ['active-first', 'weight-based']:
+            return jsonify({'error': 'Invalid loadbalance mode'}), 400
+        
+        # 验证服务配置
+        for service in ['claude', 'codex']:
+            if service not in data['services']:
+                data['services'][service] = {
+                    'enabled': False,
+                    'failover_count': 3,
+                    'current_failures': {},
+                    'excluded_configs': []
+                }
+        
+        lb_config_file = DATA_DIR / 'lb_config.json'
+        
+        # 保存配置
+        with open(lb_config_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        return jsonify({'success': True, 'message': '负载均衡配置保存成功'})
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/loadbalance/reset-failures', methods=['POST'])
+def reset_loadbalance_failures():
+    """重置负载均衡失败计数"""
+    try:
+        data = request.get_json()
+        service = data.get('service')
+        config_name = data.get('config_name')  # 可选，如果不提供则重置所有
+        
+        if not service or service not in ['claude', 'codex']:
+            return jsonify({'error': 'Invalid service parameter'}), 400
+        
+        lb_config_file = DATA_DIR / 'lb_config.json'
+        
+        # 如果配置文件不存在，直接返回成功
+        if not lb_config_file.exists():
+            return jsonify({'success': True, 'message': '无需重置'})
+        
+        with open(lb_config_file, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        service_config = config.get('services', {}).get(service, {})
+        
+        if config_name:
+            # 重置指定配置的失败计数
+            if config_name in service_config.get('current_failures', {}):
+                service_config['current_failures'][config_name] = 0
+            if config_name in service_config.get('excluded_configs', []):
+                service_config['excluded_configs'].remove(config_name)
+            message = f'已重置 {service} 服务的 {config_name} 配置失败计数'
+        else:
+            # 重置所有失败计数
+            service_config['current_failures'] = {}
+            service_config['excluded_configs'] = []
+            message = f'已重置 {service} 服务的所有失败计数'
+        
+        # 保存配置
+        with open(lb_config_file, 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        
+        return jsonify({'success': True, 'message': message})
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 def start_ui_server(port=3300):
     """启动UI服务器并打开浏览器"""
