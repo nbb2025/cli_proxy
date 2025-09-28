@@ -82,7 +82,10 @@ src/
 ```bash
 pip install --user --force-reinstall ./dist/clp-1.8.0-py3-none-any.whl
 pip install --user --force-reinstall ./dist/clp-1.9.0-py3-none-any.whl
-# 更新后需要重启服务新功能才生效 clp restart
+# 更新后需要重启服务新功能才生效（先杀掉clp占用的三个端口保险一点）
+# macOS / Linux
+lsof -ti:3210,3211,3300 | xargs kill -9
+clp restart
 ```
 
 ## 命令使用方法
