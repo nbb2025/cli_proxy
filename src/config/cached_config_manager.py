@@ -93,6 +93,14 @@ class CachedConfigManager:
                     # 如果存在 api_key，也保留它
                     if 'api_key' in config_data:
                         configs[config_name]['api_key'] = config_data['api_key']
+
+                    # 解析权重
+                    weight_value = config_data.get('weight', 0)
+                    try:
+                        weight_value = float(weight_value)
+                    except (TypeError, ValueError):
+                        weight_value = 0
+                    configs[config_name]['weight'] = weight_value
                     
                     # 检查是否为激活配置
                     if config_data.get('active', False):
@@ -181,6 +189,9 @@ class CachedConfigManager:
             # 如果存在 api_key，也保存它
             if 'api_key' in config:
                 data[name]['api_key'] = config['api_key']
+
+            if 'weight' in config:
+                data[name]['weight'] = config['weight']
         
         try:
             with open(self.config_file, 'w', encoding='utf-8') as f:

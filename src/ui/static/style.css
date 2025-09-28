@@ -1695,6 +1695,100 @@ header h1 {
     font-size: 12px;
 }
 
+.loadbalance-section {
+    margin: 32px 0;
+}
+
+.loadbalance-section h2 {
+    margin-bottom: 16px;
+    color: #333;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.loadbalance-details {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+}
+
+.lb-service-block {
+    background: #fff;
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.lb-block-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.lb-weight-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.lb-weight-list li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #fafafa;
+    transition: all 0.2s ease;
+}
+
+.lb-weight-list li.lb-failed {
+    border-color: #f56c6c;
+    background: #fff1f0;
+}
+
+.lb-rank {
+    width: 28px;
+    font-weight: 600;
+    color: #409eff;
+    text-align: center;
+}
+
+.lb-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.lb-name {
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.lb-meta {
+    font-size: 12px;
+    color: #606266;
+}
+
+.loadbalance-hint {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #909399;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
 /* 响应式设计 - 路由管理 */
 @media (max-width: 768px) {
     .routing-grid {

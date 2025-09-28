@@ -63,6 +63,12 @@ class BaseProxyService(ABC):
         # 路由配置文件
         self.routing_config_file = self.data_dir / 'model_router_config.json'
         self.routing_config = self._load_routing_config()
+        self.routing_config_signature = self._get_file_signature(self.routing_config_file)
+
+        # 负载均衡配置文件
+        self.lb_config_file = self.data_dir / 'lb_config.json'
+        self.lb_config = self._load_lb_config()
+        self.lb_config_signature = self._get_file_signature(self.lb_config_file)
 
         # 初始化异步HTTP客户端
         self.client = self._create_async_client()
@@ -238,6 +244,24 @@ class BaseProxyService(ABC):
             except Exception as fallback_exc:
                 print(f"备用日志写入也失败: {fallback_exc}")
 
+    def _get_file_signature(self, file_path: Path) -> Tuple[int, int]:
+        """获取文件签名，用于检测内容变化"""
+        try:
+            stat_result = file_path.stat()
+            return stat_result.st_mtime_ns, stat_result.st_size
+        except FileNotFoundError:
+            return (0, 0)
+        except OSError as exc:
+            print(f"读取文件签名失败({file_path}): {exc}")
+            return (0, 0)
+
+    def _ensure_routing_config_current(self):
+        """检查路由配置是否有更新，如有则重新加载"""
+        current_signature = self._get_file_signature(self.routing_config_file)
+        if current_signature != self.routing_config_signature:
+            self.routing_config = self._load_routing_config()
+            self.routing_config_signature = current_signature
+
     def _load_routing_config(self) -> dict:
         """加载路由配置"""
         try:
@@ -259,6 +283,72 @@ class BaseProxyService(ABC):
                 'codex': []
             }
         }
+
+    def _default_lb_config(self) -> dict:
+        """构建负载均衡默认配置"""
+        return {
+            'mode': 'active-first',
+            'services': {
+                'claude': {
+                    'failureThreshold': 3,
+                    'currentFailures': {},
+                    'excludedConfigs': []
+                },
+                'codex': {
+                    'failureThreshold': 3,
+                    'currentFailures': {},
+                    'excludedConfigs': []
+                }
+            }
+        }
+
+    def _ensure_lb_service_section(self, config: dict, service: str):
+        """确保指定服务的负载均衡配置结构完整"""
+        services = config.setdefault('services', {})
+        service_section = services.setdefault(service, {})
+        service_section.setdefault('failureThreshold', 3)
+        service_section.setdefault('currentFailures', {})
+        service_section.setdefault('excludedConfigs', [])
+
+    def _load_lb_config(self) -> dict:
+        """加载负载均衡配置"""
+        try:
+            if self.lb_config_file.exists():
+                with open(self.lb_config_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            else:
+                data = self._default_lb_config()
+        except Exception as exc:
+            print(f"加载负载均衡配置失败: {exc}")
+            data = self._default_lb_config()
+
+        if 'mode' not in data:
+            data['mode'] = 'active-first'
+
+        self._ensure_lb_service_section(data, 'claude')
+        self._ensure_lb_service_section(data, 'codex')
+        return data
+
+    def _ensure_lb_config_current(self):
+        """检查负载均衡配置是否有更新"""
+        current_signature = self._get_file_signature(self.lb_config_file)
+        if current_signature != self.lb_config_signature:
+            self.lb_config = self._load_lb_config()
+            self.lb_config_signature = current_signature
+
+    def _persist_lb_config(self):
+        """持久化负载均衡配置"""
+        try:
+            with open(self.lb_config_file, 'w', encoding='utf-8') as f:
+                json.dump(self.lb_config, f, ensure_ascii=False, indent=2)
+            self.lb_config_signature = self._get_file_signature(self.lb_config_file)
+        except OSError as exc:
+            print(f"保存负载均衡配置失败: {exc}")
+
+    def reload_lb_config(self):
+        """重新加载负载均衡配置"""
+        self.lb_config = self._load_lb_config()
+        self.lb_config_signature = self._get_file_signature(self.lb_config_file)
 
     def _apply_model_routing(self, body: bytes) -> Tuple[bytes, Optional[str]]:
         """应用模型路由规则，返回修改后的body和要使用的配置名"""
@@ -325,9 +415,84 @@ class BaseProxyService(ABC):
         
         return original_body, None
 
+    def _select_config_by_loadbalance(self, configs: Dict[str, Dict[str, Any]]) -> Optional[str]:
+        """根据负载均衡策略选择配置名"""
+        self._ensure_lb_config_current()
+        mode = self.lb_config.get('mode', 'active-first')
+        if mode == 'weight-based':
+            selected = self._select_weighted_config(configs)
+            if selected:
+                return selected
+        return self.config_manager.active_config
+
+    def _select_weighted_config(self, configs: Dict[str, Dict[str, Any]]) -> Optional[str]:
+        """按权重选择配置"""
+        if not configs:
+            return None
+
+        service_section = self.lb_config.get('services', {}).get(self.service_name, {})
+        threshold = service_section.get('failureThreshold', 3)
+        failures = service_section.get('currentFailures', {})
+        excluded = set(service_section.get('excludedConfigs', []))
+
+        sorted_configs = sorted(
+            configs.items(),
+            key=lambda item: (-float(item[1].get('weight', 0) or 0), item[0])
+        )
+
+        for name, _ in sorted_configs:
+            if failures.get(name, 0) >= threshold:
+                continue
+            if name in excluded:
+                continue
+            return name
+
+        active_config = self.config_manager.active_config
+        if active_config in configs:
+            return active_config
+        return sorted_configs[0][0] if sorted_configs else None
+
     def reload_routing_config(self):
         """重新加载路由配置"""
         self.routing_config = self._load_routing_config()
+        self.routing_config_signature = self._get_file_signature(self.routing_config_file)
+
+    def _record_lb_result(self, config_name: Optional[str], status_code: int):
+        """记录请求结果以更新负载均衡状态"""
+        if not config_name:
+            return
+
+        self._ensure_lb_config_current()
+        if self.lb_config.get('mode', 'active-first') != 'weight-based':
+            return
+
+        self._ensure_lb_service_section(self.lb_config, self.service_name)
+        service_section = self.lb_config['services'][self.service_name]
+        threshold = service_section.get('failureThreshold', 3)
+        failures = service_section.setdefault('currentFailures', {})
+        excluded = service_section.setdefault('excludedConfigs', [])
+
+        changed = False
+        is_success = status_code is not None and 200 <= int(status_code) < 300
+
+        if is_success:
+            if failures.get(config_name, 0) != 0:
+                failures[config_name] = 0
+                changed = True
+            if config_name in excluded:
+                excluded.remove(config_name)
+                changed = True
+        else:
+            new_count = failures.get(config_name, 0) + 1
+            if failures.get(config_name) != new_count:
+                failures[config_name] = new_count
+                changed = True
+            if new_count >= threshold and config_name not in excluded:
+                excluded.append(config_name)
+                changed = True
+
+        if changed:
+            self._persist_lb_config()
 
     def build_target_param(self, path: str, request: Request, body: bytes) -> Tuple[str, Dict, bytes, Optional[str]]:
         """
@@ -336,23 +501,33 @@ class BaseProxyService(ABC):
         Returns:
             (target_url, headers, body, active_config_name)
         """
+        # 使用最新的路由配置
+        self._ensure_routing_config_current()
+
         # 应用模型路由规则
         modified_body, config_override = self._apply_model_routing(body)
-        
+
+        # 预加载配置列表，减少重复 I/O
+        configs = self.config_manager.configs
+
         # 确定要使用的配置
         if config_override:
-            # 使用路由指定的配置
             active_config_name = config_override
-            config_data = self.config_manager.configs.get(active_config_name)
-            if not config_data:
-                print(f"路由指定的配置不存在: {active_config_name}，回退到默认配置")
-                active_config_name = self.config_manager.active_config
-                config_data = self.config_manager.configs.get(active_config_name)
         else:
-            # 使用默认激活配置
-            active_config_name = self.config_manager.active_config
-            config_data = self.config_manager.configs.get(active_config_name)
-        
+            active_config_name = self._select_config_by_loadbalance(configs)
+
+        config_data = configs.get(active_config_name)
+        if not config_data and active_config_name:
+            # 配置字典可能因缓存过期，需要重新获取
+            configs = self.config_manager.configs
+            config_data = configs.get(active_config_name)
+
+        if not config_data:
+            fallback_name = self.config_manager.active_config
+            configs = self.config_manager.configs
+            config_data = configs.get(fallback_name)
+            active_config_name = fallback_name
+
         if not config_data:
             raise ValueError(f"未找到激活配置: {active_config_name}")
         
@@ -458,6 +633,11 @@ class BaseProxyService(ABC):
             response = await self.client.send(request_out, stream=is_stream)
 
             status_code = response.status_code
+            lb_result_recorded = False
+
+            if not (200 <= status_code < 300):
+                await asyncio.to_thread(self._record_lb_result, active_config_name, status_code)
+                lb_result_recorded = True
 
             # 构造返回头，移除跳跃性头信息
             excluded_response_headers = {'connection', 'transfer-encoding'}
@@ -472,7 +652,7 @@ class BaseProxyService(ABC):
             first_chunk = True
 
             async def iterator():
-                nonlocal response_truncated, total_response_bytes, first_chunk
+                nonlocal response_truncated, total_response_bytes, first_chunk, lb_result_recorded
                 try:
                     async for chunk in response.aiter_bytes():
                         if not chunk:
@@ -535,6 +715,10 @@ class BaseProxyService(ABC):
                         target_url=target_url,
                     )
 
+                    if not lb_result_recorded:
+                        await asyncio.to_thread(self._record_lb_result, active_config_name, status_code)
+                        lb_result_recorded = True
+
             return StreamingResponse(
                 iterator(),
                 status_code=status_code,
@@ -577,6 +761,8 @@ class BaseProxyService(ABC):
                 channel=active_config_name,
                 target_url=target_url
             )
+
+            await asyncio.to_thread(self._record_lb_result, active_config_name, status_code)
 
             return JSONResponse(response_data, status_code=status_code)
 

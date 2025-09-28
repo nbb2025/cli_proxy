@@ -796,33 +796,70 @@ def get_loadbalance_config():
     """获取负载均衡配置"""
     try:
         lb_config_file = DATA_DIR / 'lb_config.json'
-        
-        # 如果配置文件不存在，返回默认配置
-        if not lb_config_file.exists():
-            default_config = {
-                'mode': 'active-first',
-                'services': {
-                    'claude': {
-                        'enabled': False,
-                        'failover_count': 3,
-                        'current_failures': {},
-                        'excluded_configs': []
-                    },
-                    'codex': {
-                        'enabled': False,
-                        'failover_count': 3,
-                        'current_failures': {},
-                        'excluded_configs': []
-                    }
-                }
+
+        def default_section():
+            return {
+                'failureThreshold': 3,
+                'currentFailures': {},
+                'excludedConfigs': []
             }
+
+        default_config = {
+            'mode': 'active-first',
+            'services': {
+                'claude': default_section(),
+                'codex': default_section()
+            }
+        }
+
+        if not lb_config_file.exists():
             return jsonify({'config': default_config})
-        
+
         with open(lb_config_file, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        
+            raw_config = json.load(f)
+
+        config = {
+            'mode': raw_config.get('mode', 'active-first'),
+            'services': {
+                'claude': default_section(),
+                'codex': default_section()
+            }
+        }
+
+        for service in ['claude', 'codex']:
+            section = raw_config.get('services', {}).get(service, {})
+            threshold = section.get('failureThreshold', section.get('failover_count', 3))
+            try:
+                threshold = int(threshold)
+                if threshold <= 0:
+                    threshold = 3
+            except (TypeError, ValueError):
+                threshold = 3
+
+            failures = section.get('currentFailures', section.get('current_failures', {}))
+            if not isinstance(failures, dict):
+                failures = {}
+            normalized_failures = {}
+            for name, count in failures.items():
+                try:
+                    numeric = int(count)
+                except (TypeError, ValueError):
+                    numeric = 0
+                normalized_failures[str(name)] = max(numeric, 0)
+
+            excluded = section.get('excludedConfigs', section.get('excluded_configs', []))
+            if not isinstance(excluded, list):
+                excluded = []
+            normalized_excluded = [str(item) for item in excluded if isinstance(item, str)]
+
+            config['services'][service] = {
+                'failureThreshold': threshold,
+                'currentFailures': normalized_failures,
+                'excludedConfigs': normalized_excluded,
+            }
+
         return jsonify({'config': config})
-    
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -831,38 +868,61 @@ def save_loadbalance_config():
     """保存负载均衡配置"""
     try:
         data = request.get_json()
-        
+
         if not data:
             return jsonify({'error': 'No configuration data provided'}), 400
-        
-        # 验证配置格式
-        required_fields = ['mode', 'services']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'error': f'Missing required field: {field}'}), 400
-        
-        # 验证模式
-        if data['mode'] not in ['active-first', 'weight-based']:
+
+        mode = data.get('mode')
+        if mode not in ['active-first', 'weight-based']:
             return jsonify({'error': 'Invalid loadbalance mode'}), 400
-        
-        # 验证服务配置
+
+        services = data.get('services', {})
+        normalized = {
+            'mode': mode,
+            'services': {}
+        }
+
         for service in ['claude', 'codex']:
-            if service not in data['services']:
-                data['services'][service] = {
-                    'enabled': False,
-                    'failover_count': 3,
-                    'current_failures': {},
-                    'excluded_configs': []
-                }
-        
+            section = services.get(service, {})
+            threshold = section.get('failureThreshold', 3)
+            try:
+                threshold = int(threshold)
+                if threshold <= 0:
+                    threshold = 3
+            except (TypeError, ValueError):
+                return jsonify({'error': f'Invalid failureThreshold for service {service}'}), 400
+
+            failures = section.get('currentFailures', {})
+            if not isinstance(failures, dict):
+                return jsonify({'error': f'currentFailures for service {service} must be an object'}), 400
+            normalized_failures = {}
+            for name, count in failures.items():
+                try:
+                    numeric = int(count)
+                except (TypeError, ValueError):
+                    return jsonify({'error': f'Failure count for {service}:{name} must be integer'}), 400
+                normalized_failures[str(name)] = max(numeric, 0)
+
+            excluded = section.get('excludedConfigs', [])
+            if excluded is None:
+                excluded = []
+            if not isinstance(excluded, list):
+                return jsonify({'error': f'excludedConfigs for service {service} must be an array'}), 400
+            normalized_excluded = [str(item) for item in excluded if isinstance(item, str)]
+
+            normalized['services'][service] = {
+                'failureThreshold': threshold,
+                'currentFailures': normalized_failures,
+                'excludedConfigs': normalized_excluded
+            }
+
         lb_config_file = DATA_DIR / 'lb_config.json'
-        
-        # 保存配置
+
         with open(lb_config_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        
+            json.dump(normalized, f, ensure_ascii=False, indent=2)
+
         return jsonify({'success': True, 'message': '负载均衡配置保存成功'})
-    
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -873,40 +933,46 @@ def reset_loadbalance_failures():
         data = request.get_json()
         service = data.get('service')
         config_name = data.get('config_name')  # 可选，如果不提供则重置所有
-        
+
         if not service or service not in ['claude', 'codex']:
             return jsonify({'error': 'Invalid service parameter'}), 400
-        
+
         lb_config_file = DATA_DIR / 'lb_config.json'
-        
+
         # 如果配置文件不存在，直接返回成功
         if not lb_config_file.exists():
             return jsonify({'success': True, 'message': '无需重置'})
-        
+
         with open(lb_config_file, 'r', encoding='utf-8') as f:
             config = json.load(f)
-        
-        service_config = config.get('services', {}).get(service, {})
-        
+
+        services = config.setdefault('services', {})
+        service_config = services.setdefault(service, {
+            'failureThreshold': 3,
+            'currentFailures': {},
+            'excludedConfigs': []
+        })
+
+        current_failures = service_config.setdefault('currentFailures', {})
+        excluded_configs = service_config.setdefault('excludedConfigs', [])
+
         if config_name:
-            # 重置指定配置的失败计数
-            if config_name in service_config.get('current_failures', {}):
-                service_config['current_failures'][config_name] = 0
-            if config_name in service_config.get('excluded_configs', []):
-                service_config['excluded_configs'].remove(config_name)
-            message = f'已重置 {service} 服务的 {config_name} 配置失败计数'
+            key = str(config_name)
+            if key in current_failures:
+                current_failures[key] = 0
+            if key in excluded_configs:
+                excluded_configs.remove(key)
+            message = f'已重置 {service} 服务的 {key} 配置失败计数'
         else:
-            # 重置所有失败计数
-            service_config['current_failures'] = {}
-            service_config['excluded_configs'] = []
+            service_config['currentFailures'] = {}
+            service_config['excludedConfigs'] = []
             message = f'已重置 {service} 服务的所有失败计数'
-        
-        # 保存配置
+
         with open(lb_config_file, 'w', encoding='utf-8') as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
-        
+
         return jsonify({'success': True, 'message': message})
-    
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

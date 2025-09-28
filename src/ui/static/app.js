@@ -1,5 +1,5 @@
 // Vue 3 + Element Plus CLI Proxy Monitor Application
-const { createApp, ref, reactive, onMounted, nextTick, watch } = Vue;
+const { createApp, ref, reactive, computed, onMounted, nextTick, watch } = Vue;
 const { ElMessage, ElMessageBox } = ElementPlus;
 
 const app = createApp({
@@ -40,6 +40,10 @@ const app = createApp({
         // 配置选项
         const claudeConfigs = ref([]);
         const codexConfigs = ref([]);
+        const configMetadata = reactive({
+            claude: {},
+            codex: {}
+        });
         
         // 抽屉状态
         const configDrawerVisible = ref(false);
@@ -79,14 +83,16 @@ const app = createApp({
                 baseUrl: 'https://',
                 authType: 'auth_token',
                 authValue: '',
-                active: false
+                active: false,
+                weight: 0
             },
             codex: {
                 name: '',
                 baseUrl: 'https://',
                 authType: 'auth_token',
                 authValue: '',
-                active: false
+                active: false,
+                weight: 0
             }
         });
 
@@ -153,6 +159,28 @@ const app = createApp({
             }
         });
         const routingConfigSaving = ref(false);
+
+        // 负载均衡相关数据
+        const loadbalanceConfig = reactive({
+            mode: 'active-first',
+            services: {
+                claude: {
+                    failureThreshold: 3,
+                    currentFailures: {},
+                    excludedConfigs: []
+                },
+                codex: {
+                    failureThreshold: 3,
+                    currentFailures: {},
+                    excludedConfigs: []
+                }
+            }
+        });
+        const loadbalanceSaving = ref(false);
+        const loadbalanceLoading = ref(false);
+        const resettingFailures = reactive({ claude: false, codex: false });
+        const isLoadbalanceWeightMode = computed(() => loadbalanceConfig.mode === 'weight-based');
+        const loadbalanceDisabledNotice = computed(() => isLoadbalanceWeightMode.value ? '负载均衡生效中' : '');
 
         // 请求状态映射
         const REQUEST_STATUS = {
@@ -735,6 +763,197 @@ const app = createApp({
             }
         };
 
+        const getLoadbalanceModeText = (mode) => {
+            const mapping = {
+                'active-first': '按激活状态',
+                'weight-based': '按权重'
+            };
+            return mapping[mode] || mode;
+        };
+
+        const normalizeLoadbalanceConfig = (payload = {}) => {
+            const normalized = {
+                mode: payload.mode === 'weight-based' ? 'weight-based' : 'active-first',
+                services: {
+                    claude: {
+                        failureThreshold: 3,
+                        currentFailures: {},
+                        excludedConfigs: []
+                    },
+                    codex: {
+                        failureThreshold: 3,
+                        currentFailures: {},
+                        excludedConfigs: []
+                    }
+                }
+            };
+
+            ['claude', 'codex'].forEach(service => {
+                const section = payload.services?.[service] || {};
+                const threshold = Number(section.failureThreshold ?? section.failover_count ?? 3);
+                normalized.services[service].failureThreshold = Number.isFinite(threshold) && threshold > 0 ? threshold : 3;
+
+                const rawFailures = section.currentFailures || section.current_failures || {};
+                const normalizedFailures = {};
+                Object.entries(rawFailures || {}).forEach(([name, count]) => {
+                    const numeric = Number(count);
+                    normalizedFailures[name] = Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+                });
+                normalized.services[service].currentFailures = normalizedFailures;
+
+                const excludedList = section.excludedConfigs || section.excluded_configs || [];
+                normalized.services[service].excludedConfigs = Array.isArray(excludedList) ? [...excludedList] : [];
+            });
+
+            return normalized;
+        };
+
+        const applyLoadbalanceConfig = (normalized) => {
+            loadbalanceConfig.mode = normalized.mode;
+            ['claude', 'codex'].forEach(service => {
+                const svc = normalized.services[service];
+                loadbalanceConfig.services[service].failureThreshold = svc.failureThreshold;
+                loadbalanceConfig.services[service].currentFailures = Object.assign({}, svc.currentFailures);
+                loadbalanceConfig.services[service].excludedConfigs = [...svc.excludedConfigs];
+            });
+        };
+
+        const buildLoadbalancePayload = () => {
+            const buildServiceSection = (service) => {
+                const section = loadbalanceConfig.services[service] || {};
+                const threshold = Number(section.failureThreshold ?? 3);
+                const normalizedThreshold = Number.isFinite(threshold) && threshold > 0 ? threshold : 3;
+                const failuresPayload = {};
+                Object.entries(section.currentFailures || {}).forEach(([name, count]) => {
+                    const numeric = Number(count);
+                    failuresPayload[name] = Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+                });
+                const excludedPayload = Array.isArray(section.excludedConfigs) ? [...section.excludedConfigs] : [];
+                return {
+                    failureThreshold: normalizedThreshold,
+                    currentFailures: failuresPayload,
+                    excludedConfigs: excludedPayload
+                };
+            };
+
+            return {
+                mode: loadbalanceConfig.mode,
+                services: {
+                    claude: buildServiceSection('claude'),
+                    codex: buildServiceSection('codex')
+                }
+            };
+        };
+
+        const loadLoadbalanceConfig = async () => {
+            loadbalanceLoading.value = true;
+            try {
+                const data = await fetchWithErrorHandling('/api/loadbalance/config');
+                if (data.config) {
+                    const normalized = normalizeLoadbalanceConfig(data.config);
+                    applyLoadbalanceConfig(normalized);
+                }
+            } catch (error) {
+                console.error('加载负载均衡配置失败:', error);
+                ElMessage.error('加载负载均衡配置失败: ' + error.message);
+                applyLoadbalanceConfig(normalizeLoadbalanceConfig({}));
+            } finally {
+                loadbalanceLoading.value = false;
+            }
+        };
+
+        const saveLoadbalanceConfig = async (showSuccess = true) => {
+            loadbalanceSaving.value = true;
+            try {
+                const payload = buildLoadbalancePayload();
+                const result = await fetchWithErrorHandling('/api/loadbalance/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (result.success) {
+                    if (showSuccess) {
+                        ElMessage.success('负载均衡配置保存成功');
+                    }
+                    await loadLoadbalanceConfig();
+                } else {
+                    ElMessage.error('负载均衡配置保存失败: ' + (result.error || '未知错误'));
+                }
+            } catch (error) {
+                ElMessage.error('负载均衡配置保存失败: ' + error.message);
+            } finally {
+                loadbalanceSaving.value = false;
+            }
+        };
+
+        const selectLoadbalanceMode = async (mode) => {
+            if (loadbalanceConfig.mode === mode) {
+                return;
+            }
+            loadbalanceConfig.mode = mode;
+            await saveLoadbalanceConfig(false);
+            ElMessage.success(`已切换到${getLoadbalanceModeText(mode)}模式`);
+        };
+
+        const weightedTargets = computed(() => {
+            const result = { claude: [], codex: [] };
+            ['claude', 'codex'].forEach(service => {
+                const metadata = configMetadata[service] || {};
+                const threshold = loadbalanceConfig.services[service]?.failureThreshold || 3;
+                const failures = loadbalanceConfig.services[service]?.currentFailures || {};
+                const excluded = loadbalanceConfig.services[service]?.excludedConfigs || [];
+                const list = Object.entries(metadata).map(([name, meta]) => {
+                    const weight = Number(meta?.weight ?? 0);
+                    return {
+                        name,
+                        weight: Number.isFinite(weight) ? weight : 0,
+                        failures: failures[name] || 0,
+                        threshold,
+                        excluded: excluded.includes(name),
+                        isActive: services[service].config === name
+                    };
+                });
+                list.sort((a, b) => {
+                    if (b.weight !== a.weight) {
+                        return b.weight - a.weight;
+                    }
+                    return a.name.localeCompare(b.name);
+                });
+                result[service] = list;
+            });
+            return result;
+        });
+
+        const resetLoadbalanceFailures = async (service) => {
+            if (resettingFailures[service]) {
+                return;
+            }
+            resettingFailures[service] = true;
+            try {
+                const result = await fetchWithErrorHandling('/api/loadbalance/reset-failures', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ service })
+                });
+
+                if (result.success) {
+                    ElMessage.success(result.message || '失败计数已重置');
+                    await loadLoadbalanceConfig();
+                } else {
+                    ElMessage.error('重置失败计数失败: ' + (result.error || '未知错误'));
+                }
+            } catch (error) {
+                ElMessage.error('重置失败计数失败: ' + error.message);
+            } finally {
+                resettingFailures[service] = false;
+            }
+        };
+
         // API 请求方法
         const fetchWithErrorHandling = async (url, options = {}) => {
             try {
@@ -835,18 +1054,40 @@ const app = createApp({
                 const claudeData = await fetchWithErrorHandling('/api/config/claude');
                 if (claudeData.content) {
                     const configs = JSON.parse(claudeData.content);
-                    claudeConfigs.value = Object.keys(configs).filter(key => 
-                        key && key !== 'undefined' && configs[key] !== undefined
-                    );
+                    const entries = Object.entries(configs).filter(([key, value]) => key && key !== 'undefined' && value !== undefined);
+                    claudeConfigs.value = entries.map(([key]) => key);
+                    const metadata = {};
+                    entries.forEach(([key, value]) => {
+                        const weightValue = Number(value?.weight ?? 0);
+                        metadata[key] = {
+                            weight: Number.isFinite(weightValue) ? weightValue : 0,
+                            active: !!value?.active
+                        };
+                    });
+                    configMetadata.claude = metadata;
+                } else {
+                    claudeConfigs.value = [];
+                    configMetadata.claude = {};
                 }
                 
                 // 加载Codex配置选项
                 const codexData = await fetchWithErrorHandling('/api/config/codex');
                 if (codexData.content) {
                     const configs = JSON.parse(codexData.content);
-                    codexConfigs.value = Object.keys(configs).filter(key => 
-                        key && key !== 'undefined' && configs[key] !== undefined
-                    );
+                    const entries = Object.entries(configs).filter(([key, value]) => key && key !== 'undefined' && value !== undefined);
+                    codexConfigs.value = entries.map(([key]) => key);
+                    const metadata = {};
+                    entries.forEach(([key, value]) => {
+                        const weightValue = Number(value?.weight ?? 0);
+                        metadata[key] = {
+                            weight: Number.isFinite(weightValue) ? weightValue : 0,
+                            active: !!value?.active
+                        };
+                    });
+                    configMetadata.codex = metadata;
+                } else {
+                    codexConfigs.value = [];
+                    configMetadata.codex = {};
                 }
             } catch (error) {
                 console.error('加载配置选项失败:', error);
@@ -861,7 +1102,8 @@ const app = createApp({
                 await Promise.all([
                     loadStatus(),
                     loadLogs(),
-                    loadRoutingConfig()
+                    loadRoutingConfig(),
+                    loadLoadbalanceConfig()
                 ]);
                 updateLastUpdateTime();
             } catch (error) {
@@ -887,6 +1129,10 @@ const app = createApp({
         // 配置切换
         const switchConfig = async (serviceName, configName) => {
             if (!configName) return;
+            if (isLoadbalanceWeightMode.value) {
+                ElMessage.info('负载均衡权重模式生效，无法手动切换转发目标');
+                return;
+            }
             
             try {
                 const result = await fetchWithErrorHandling('/api/switch-config', {
@@ -958,7 +1204,8 @@ const app = createApp({
                 baseUrl: 'https://',
                 authType: 'auth_token',
                 authValue: '',
-                active: false
+                active: false,
+                weight: 0
             };
             // 自动聚焦到站点名称输入框
             nextTick(() => {
@@ -994,8 +1241,13 @@ const app = createApp({
                 baseUrl: 'https://',
                 authType: 'auth_token',
                 authValue: '',
-                active: false
+                active: false,
+                weight: 0
             };
+        };
+
+        const saveInteractiveConfig = async (service) => {
+            await saveConfigForService(service);
         };
 
         const removeConfigSite = async (service, index) => {
@@ -1061,6 +1313,9 @@ const app = createApp({
                             config.auth_token = '';
                         }
 
+                        const weightValue = Number(site.weight ?? 0);
+                        config.weight = Number.isFinite(weightValue) ? weightValue : 0;
+
                         jsonObj[site.name.trim()] = config;
                     }
                 });
@@ -1105,12 +1360,18 @@ const app = createApp({
                             authValue = config.auth_token;
                         }
 
+                        let weightValue = Number(config.weight ?? 0);
+                        if (!Number.isFinite(weightValue)) {
+                            weightValue = 0;
+                        }
+
                         sites.push({
                             name: siteName,
                             baseUrl: config.base_url || '',
                             authType: authType,
                             authValue: authValue,
-                            active: config.active || false
+                            active: config.active || false,
+                            weight: weightValue
                         });
                     }
                 });
@@ -1603,6 +1864,10 @@ const app = createApp({
                 request.status = event.status || (event.type === 'completed' ? 'COMPLETED' : 'FAILED');
                 request.displayDuration = event.duration_ms || request.displayDuration;
                 request.status_code = event.status_code;
+
+                if (isLoadbalanceWeightMode.value) {
+                    loadLoadbalanceConfig().catch(err => console.error('刷新负载均衡数据失败:', err));
+                }
             } catch (error) {
                 console.error('完成请求失败:', error);
             }
@@ -1761,6 +2026,7 @@ const app = createApp({
             startAddingSite,
             confirmAddSite,
             cancelAddSite,
+            saveInteractiveConfig,
             removeConfigSite,
             handleActiveChange,
             syncFormToJson,
@@ -1807,7 +2073,18 @@ const app = createApp({
             addConfigMapping,
             removeConfigMapping,
             saveRoutingConfig,
-            loadRoutingConfig
+            loadRoutingConfig,
+
+            // 负载均衡相关
+            loadbalanceConfig,
+            loadbalanceSaving,
+            loadbalanceLoading,
+            loadbalanceDisabledNotice,
+            isLoadbalanceWeightMode,
+            weightedTargets,
+            selectLoadbalanceMode,
+            resetLoadbalanceFailures,
+            resettingFailures
         };
     }
 });

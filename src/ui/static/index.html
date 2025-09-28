@@ -42,7 +42,8 @@
                                         placeholder="选择配置..."
                                         @change="switchConfig('claude', $event)"
                                         size="small"
-                                        style="width: 150px;">
+                                        style="width: 150px;"
+                                        :disabled="isLoadbalanceWeightMode">
                                         <el-option 
                                             v-for="config in claudeConfigs" 
                                             :key="config" 
@@ -50,6 +51,10 @@
                                             :value="config">
                                         </el-option>
                                     </el-select>
+                                </p>
+                                <p v-if="isLoadbalanceWeightMode" class="loadbalance-hint">
+                                    <i class="el-icon-warning-outline"></i>
+                                    <span>{{ loadbalanceDisabledNotice }}</span>
                                 </p>
                             </div>
                         </div>
@@ -69,7 +74,8 @@
                                         placeholder="选择配置..."
                                         @change="switchConfig('codex', $event)"
                                         size="small"
-                                        style="width: 150px;">
+                                        style="width: 150px;"
+                                        :disabled="isLoadbalanceWeightMode">
                                         <el-option 
                                             v-for="config in codexConfigs" 
                                             :key="config" 
@@ -77,6 +83,10 @@
                                             :value="config">
                                         </el-option>
                                     </el-select>
+                                </p>
+                                <p v-if="isLoadbalanceWeightMode" class="loadbalance-hint">
+                                    <i class="el-icon-warning-outline"></i>
+                                    <span>{{ loadbalanceDisabledNotice }}</span>
                                 </p>
                             </div>
                         </div>
@@ -171,6 +181,73 @@
                     </div>
                 </section>
 
+                <!-- 负载均衡 -->
+                <section class="loadbalance-section">
+                    <h2>负载均衡</h2>
+                    <div class="routing-grid">
+                        <div class="routing-card"
+                             :class="{ active: loadbalanceConfig.mode === 'active-first' }"
+                             @click="selectLoadbalanceMode('active-first')">
+                            <div class="routing-card-header">
+                                <i class="el-icon-switch-button"></i>
+                                <h4>按激活状态</h4>
+                            </div>
+                            <div class="routing-card-description">
+                                始终使用当前激活的配置转发请求。
+                            </div>
+                            <div class="routing-card-status" v-if="loadbalanceConfig.mode === 'active-first'">
+                                <el-tag type="success" size="small">已激活</el-tag>
+                            </div>
+                        </div>
+
+                        <div class="routing-card"
+                             :class="{ active: loadbalanceConfig.mode === 'weight-based' }"
+                             @click="selectLoadbalanceMode('weight-based')">
+                            <div class="routing-card-header">
+                                <i class="el-icon-data-analysis"></i>
+                                <h4>按权重</h4>
+                            </div>
+                            <div class="routing-card-description">
+                                依据配置权重排序转发目标，连续失败达到阈值将自动切换。
+                            </div>
+                            <div class="routing-card-status" v-if="loadbalanceConfig.mode === 'weight-based'">
+                                <el-tag type="success" size="small">已激活</el-tag>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="loadbalance-details" v-if="isLoadbalanceWeightMode" v-loading="loadbalanceLoading">
+                        <div class="lb-service-block" v-for="service in ['claude', 'codex']" :key="service">
+                            <div class="lb-block-header">
+                                <h4>{{ service === 'claude' ? 'Claude' : 'Codex' }} 转发顺序</h4>
+                                <el-button type="text" size="small"
+                                           :loading="resettingFailures[service]"
+                                           @click="resetLoadbalanceFailures(service)">
+                                    <i class="el-icon-refresh"></i> 重置失败计数
+                                </el-button>
+                            </div>
+                            <el-empty description="未配置转发目标" v-if="weightedTargets[service].length === 0"></el-empty>
+                            <ul class="lb-weight-list" v-else>
+                                <li v-for="(item, index) in weightedTargets[service]"
+                                    :key="item.name"
+                                    :class="{ 'lb-failed': item.failures >= item.threshold }">
+                                    <span class="lb-rank">{{ index + 1 }}</span>
+                                    <div class="lb-info">
+                                        <div class="lb-name">
+                                            {{ item.name }}
+                                            <el-tag v-if="item.isActive" size="small" type="info">当前激活</el-tag>
+                                            <el-tag v-if="item.excluded" size="small" type="danger" effect="plain">已暂时跳过</el-tag>
+                                        </div>
+                                        <div class="lb-meta">
+                                            权重 {{ item.weight }} · 失败 {{ item.failures }} / {{ item.threshold }}
+                                        </div>
+                                    </div>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </section>
+
 
             </main>
         </div>
@@ -226,6 +303,12 @@
                                         size="small"
                                         @click="startAddingSite('claude')">添加站点
                                     </el-button>
+                                    <el-button
+                                        type="primary"
+                                        size="small"
+                                        :loading="configSaving"
+                                        @click="saveInteractiveConfig('claude')">保存配置
+                                    </el-button>
                                 </div>
                             </div>
 
@@ -247,6 +330,14 @@
                                             v-model="newSiteData.claude.baseUrl"
                                             placeholder="例如: https://api.openai.com">
                                         </el-input>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">权重:</label>
+                                        <el-input-number
+                                            v-model.number="newSiteData.claude.weight"
+                                            :min="0"
+                                            :step="1">
+                                        </el-input-number>
                                     </div>
                                     <div class="config-field">
                                         <label class="field-label">认证方式:</label>
@@ -295,6 +386,16 @@
                                             placeholder="目标站点地址"
                                             @input="syncFormToJson('claude')">
                                         </el-input>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">权重:</label>
+                                        <el-input-number
+                                            v-model.number="site.weight"
+                                            :min="0"
+                                            :step="1"
+                                            @change="syncFormToJson('claude')"
+                                            @input="syncFormToJson('claude')">
+                                        </el-input-number>
                                     </div>
                                     <div class="config-field">
                                         <label class="field-label">认证方式:</label>
@@ -409,6 +510,12 @@
                                         size="small"
                                         @click="startAddingSite('codex')">添加站点
                                     </el-button>
+                                    <el-button
+                                        type="primary"
+                                        size="small"
+                                        :loading="configSaving"
+                                        @click="saveInteractiveConfig('codex')">保存配置
+                                    </el-button>
                                 </div>
                             </div>
 
@@ -430,6 +537,14 @@
                                             v-model="newSiteData.codex.baseUrl"
                                             placeholder="例如: https://api.openai.com">
                                         </el-input>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">权重:</label>
+                                        <el-input-number
+                                            v-model.number="newSiteData.codex.weight"
+                                            :min="0"
+                                            :step="1">
+                                        </el-input-number>
                                     </div>
                                     <div class="config-field">
                                         <label class="field-label">认证方式:</label>
@@ -478,6 +593,16 @@
                                             placeholder="目标站点地址"
                                             @input="syncFormToJson('codex')">
                                         </el-input>
+                                    </div>
+                                    <div class="config-field">
+                                        <label class="field-label">权重:</label>
+                                        <el-input-number
+                                            v-model.number="site.weight"
+                                            :min="0"
+                                            :step="1"
+                                            @change="syncFormToJson('codex')"
+                                            @input="syncFormToJson('codex')">
+                                        </el-input-number>
                                     </div>
                                     <div class="config-field">
                                         <label class="field-label">认证方式:</label>
