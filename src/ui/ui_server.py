@@ -140,11 +140,202 @@ def _rename_log_channels(service: str, rename_map: Dict[str, str]) -> None:
     temp_path.replace(LOG_FILE)
 
 
+def _sync_router_config_names(service: str, rename_map: Dict[str, str]) -> None:
+    """同步模型路由配置中的配置名称"""
+    if not rename_map:
+        return
+
+    router_config_file = DATA_DIR / 'model_router_config.json'
+    if not router_config_file.exists():
+        return
+
+    try:
+        with open(router_config_file, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+
+        changed = False
+
+        # 更新 modelMappings 中的配置名称
+        if 'modelMappings' in config and service in config['modelMappings']:
+            for mapping in config['modelMappings'][service]:
+                if mapping.get('source_type') == 'config' and mapping.get('source') in rename_map:
+                    old_name = mapping['source']
+                    new_name = rename_map[old_name]
+                    mapping['source'] = new_name
+                    changed = True
+
+        # 更新 configMappings 中的配置名称
+        if 'configMappings' in config and service in config['configMappings']:
+            for mapping in config['configMappings'][service]:
+                if mapping.get('config') in rename_map:
+                    old_name = mapping['config']
+                    new_name = rename_map[old_name]
+                    mapping['config'] = new_name
+                    changed = True
+
+        if changed:
+            with open(router_config_file, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        print(f"同步路由配置名称失败: {e}")
+
+
+def _sync_loadbalance_config_names(service: str, rename_map: Dict[str, str]) -> None:
+    """同步负载均衡配置中的配置名称"""
+    if not rename_map:
+        return
+
+    lb_config_file = DATA_DIR / 'lb_config.json'
+    if not lb_config_file.exists():
+        return
+
+    try:
+        with open(lb_config_file, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+
+        changed = False
+        service_config = config.get('services', {}).get(service, {})
+
+        # 更新 currentFailures 中的配置名称
+        current_failures = service_config.get('currentFailures', {})
+        new_failures = {}
+        for config_name, count in current_failures.items():
+            if config_name in rename_map:
+                new_failures[rename_map[config_name]] = count
+                changed = True
+            else:
+                new_failures[config_name] = count
+
+        if changed:
+            service_config['currentFailures'] = new_failures
+
+        # 更新 excludedConfigs 中的配置名称
+        excluded_configs = service_config.get('excludedConfigs', [])
+        new_excluded = []
+        for config_name in excluded_configs:
+            if config_name in rename_map:
+                new_excluded.append(rename_map[config_name])
+                changed = True
+            else:
+                new_excluded.append(config_name)
+
+        if changed:
+            service_config['excludedConfigs'] = new_excluded
+            config.setdefault('services', {})[service] = service_config
+
+            with open(lb_config_file, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        print(f"同步负载均衡配置名称失败: {e}")
+
+
+def _cleanup_deleted_configs(service: str, old_configs: Dict[str, Any], new_configs: Dict[str, Any]) -> None:
+    """清理被删除的配置在路由配置和负载均衡配置中的引用"""
+    if not isinstance(old_configs, dict) or not isinstance(new_configs, dict):
+        return
+
+    # 找出被删除的配置
+    deleted_configs = set(old_configs.keys()) - set(new_configs.keys())
+    if not deleted_configs:
+        return
+
+    # 清理路由配置中的引用
+    _cleanup_router_config_references(service, deleted_configs)
+    # 清理负载均衡配置中的引用
+    _cleanup_loadbalance_config_references(service, deleted_configs)
+
+
+def _cleanup_router_config_references(service: str, deleted_configs: set) -> None:
+    """清理路由配置中对已删除配置的引用"""
+    router_config_file = DATA_DIR / 'model_router_config.json'
+    if not router_config_file.exists():
+        return
+
+    try:
+        with open(router_config_file, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+
+        changed = False
+
+        # 清理 modelMappings 中的配置引用
+        if 'modelMappings' in config and service in config['modelMappings']:
+            original_mappings = config['modelMappings'][service][:]
+            config['modelMappings'][service] = [
+                mapping for mapping in original_mappings
+                if not (mapping.get('source_type') == 'config' and mapping.get('source') in deleted_configs)
+            ]
+            if len(config['modelMappings'][service]) != len(original_mappings):
+                changed = True
+
+        # 清理 configMappings 中的配置引用
+        if 'configMappings' in config and service in config['configMappings']:
+            original_mappings = config['configMappings'][service][:]
+            config['configMappings'][service] = [
+                mapping for mapping in original_mappings
+                if mapping.get('config') not in deleted_configs
+            ]
+            if len(config['configMappings'][service]) != len(original_mappings):
+                changed = True
+
+        if changed:
+            with open(router_config_file, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        print(f"清理路由配置引用失败: {e}")
+
+
+def _cleanup_loadbalance_config_references(service: str, deleted_configs: set) -> None:
+    """清理负载均衡配置中对已删除配置的引用"""
+    lb_config_file = DATA_DIR / 'lb_config.json'
+    if not lb_config_file.exists():
+        return
+
+    try:
+        with open(lb_config_file, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+
+        changed = False
+        service_config = config.get('services', {}).get(service, {})
+
+        # 清理 currentFailures 中的配置引用
+        current_failures = service_config.get('currentFailures', {})
+        new_failures = {
+            config_name: count for config_name, count in current_failures.items()
+            if config_name not in deleted_configs
+        }
+        if len(new_failures) != len(current_failures):
+            service_config['currentFailures'] = new_failures
+            changed = True
+
+        # 清理 excludedConfigs 中的配置引用
+        excluded_configs = service_config.get('excludedConfigs', [])
+        new_excluded = [
+            config_name for config_name in excluded_configs
+            if config_name not in deleted_configs
+        ]
+        if len(new_excluded) != len(excluded_configs):
+            service_config['excludedConfigs'] = new_excluded
+            changed = True
+
+        if changed:
+            config.setdefault('services', {})[service] = service_config
+            with open(lb_config_file, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        print(f"清理负载均衡配置引用失败: {e}")
+
+
 def _apply_channel_renames(service: str, rename_map: Dict[str, str]) -> None:
     if not rename_map:
         return
     _rename_history_channels(service, rename_map)
     _rename_log_channels(service, rename_map)
+    _sync_router_config_names(service, rename_map)
+    _sync_loadbalance_config_names(service, rename_map)
 
 
 def load_logs() -> list[Dict[str, Any]]:
@@ -436,6 +627,7 @@ def save_config(service):
                 f.write(content)
 
             _apply_channel_renames(service, rename_map)
+            _cleanup_deleted_configs(service, old_configs, new_configs)
         except Exception as exc:
             # 恢复旧配置，避免部分成功
             if old_content is not None:

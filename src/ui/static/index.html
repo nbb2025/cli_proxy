@@ -144,10 +144,10 @@
                              @click="selectRoutingMode('model-mapping')">
                             <div class="routing-card-header">
                                 <i class="el-icon-s-operation"></i>
-                                <h4>模型→模型映射</h4>
+                                <h4>模型|配置→模型映射</h4>
                             </div>
                             <div class="routing-card-description">
-                                将源请求模型映射为其他模型，如sonnet4→opus4
+                                将源请求模型|配置映射为其他模型，如sonnet4→opus4|xxx站点→opus4
                             </div>
                             <div class="routing-card-status" v-if="routingMode === 'model-mapping'">
                                 <el-tag type="success" size="small">已激活</el-tag>
@@ -1313,11 +1313,11 @@
             </div>
         </el-drawer>
 
-        <!-- 模型→模型映射配置抽屉 -->
-        <el-drawer 
-            v-model="modelMappingDrawerVisible" 
-            title="模型→模型映射配置" 
-            size="60%" 
+        <!-- 模型|配置→模型映射配置抽屉 -->
+        <el-drawer
+            v-model="modelMappingDrawerVisible"
+            title="模型|配置→模型映射配置"
+            size="60%"
             direction="rtl">
             <div class="mapping-drawer-content">
                 <div class="mapping-tabs">
@@ -1333,31 +1333,61 @@
                                 
                                 <div class="mapping-list" v-if="routingConfig.modelMappings.claude.length > 0">
                                     <div class="mapping-item" v-for="(mapping, index) in routingConfig.modelMappings.claude" :key="index">
-                                        <div class="mapping-form">
-                                            <div class="mapping-field">
-                                                <label>源模型:</label>
-                                                <el-input 
-                                                    v-model="mapping.source" 
-                                                    placeholder="例如: claude-3-5-sonnet-20241022"
-                                                    size="small">
-                                                </el-input>
-                                            </div>
-                                            <div class="mapping-arrow">→</div>
-                                            <div class="mapping-field">
-                                                <label>目标模型:</label>
-                                                <el-input 
-                                                    v-model="mapping.target" 
-                                                    placeholder="例如: claude-3-opus-20240229"
-                                                    size="small">
-                                                </el-input>
-                                            </div>
-                                            <div class="mapping-actions">
-                                                <el-button 
-                                                    type="danger" 
-                                                    size="small" 
-                                                    @click="removeModelMapping('claude', index)">
-                                                    删除
-                                                </el-button>
+                                        <div class="mapping-form-horizontal">
+                                            <div class="mapping-field-group">
+                                                <div class="mapping-field-compact">
+                                                    <label>源类型:</label>
+                                                    <el-select
+                                                        v-model="mapping.source_type"
+                                                        placeholder="选择类型"
+                                                        size="small"
+                                                        style="width: 80px;">
+                                                        <el-option label="模型" value="model"></el-option>
+                                                        <el-option label="配置" value="config"></el-option>
+                                                    </el-select>
+                                                </div>
+                                                <div class="mapping-field-compact">
+                                                    <label v-if="mapping.source_type === 'model'">源模型:</label>
+                                                    <label v-else>使用配置:</label>
+                                                    <el-select
+                                                        v-if="mapping.source_type === 'config'"
+                                                        v-model="mapping.source"
+                                                        placeholder="选择配置"
+                                                        size="small"
+                                                        style="width: 520px;">
+                                                        <el-option
+                                                            v-for="config in claudeConfigs"
+                                                            :key="config"
+                                                            :label="config"
+                                                            :value="config">
+                                                        </el-option>
+                                                    </el-select>
+                                                    <el-input
+                                                        v-else
+                                                        v-model="mapping.source"
+                                                        placeholder="例如: claude-sonnet-4-20250514"
+                                                        size="small"
+                                                        style="width: 220px;">
+                                                    </el-input>
+                                                </div>
+                                                <div class="mapping-arrow-compact">→</div>
+                                                <div class="mapping-field-compact">
+                                                    <label>目标模型:</label>
+                                                    <el-input
+                                                        v-model="mapping.target"
+                                                        placeholder="例如: claude-opus-4-1-20250805"
+                                                        size="small"
+                                                        style="width: 220px;">
+                                                    </el-input>
+                                                </div>
+                                                <div class="mapping-actions-compact">
+                                                    <el-button
+                                                        type="danger"
+                                                        size="small"
+                                                        @click="removeModelMapping('claude', index)">
+                                                        删除
+                                                    </el-button>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -1380,31 +1410,61 @@
                                 
                                 <div class="mapping-list" v-if="routingConfig.modelMappings.codex.length > 0">
                                     <div class="mapping-item" v-for="(mapping, index) in routingConfig.modelMappings.codex" :key="index">
-                                        <div class="mapping-form">
-                                            <div class="mapping-field">
-                                                <label>源模型:</label>
-                                                <el-input 
-                                                    v-model="mapping.source" 
-                                                    placeholder="例如: gpt-4o"
-                                                    size="small">
-                                                </el-input>
-                                            </div>
-                                            <div class="mapping-arrow">→</div>
-                                            <div class="mapping-field">
-                                                <label>目标模型:</label>
-                                                <el-input 
-                                                    v-model="mapping.target" 
-                                                    placeholder="例如: gpt-4-turbo"
-                                                    size="small">
-                                                </el-input>
-                                            </div>
-                                            <div class="mapping-actions">
-                                                <el-button 
-                                                    type="danger" 
-                                                    size="small" 
-                                                    @click="removeModelMapping('codex', index)">
-                                                    删除
-                                                </el-button>
+                                        <div class="mapping-form-horizontal">
+                                            <div class="mapping-field-group">
+                                                <div class="mapping-field-compact">
+                                                    <label>源类型:</label>
+                                                    <el-select
+                                                        v-model="mapping.source_type"
+                                                        placeholder="选择类型"
+                                                        size="small"
+                                                        style="width: 80px;">
+                                                        <el-option label="模型" value="model"></el-option>
+                                                        <el-option label="配置" value="config"></el-option>
+                                                    </el-select>
+                                                </div>
+                                                <div class="mapping-field-compact">
+                                                    <label v-if="mapping.source_type === 'model'">源模型:</label>
+                                                    <label v-else>使用配置:</label>
+                                                    <el-select
+                                                        v-if="mapping.source_type === 'config'"
+                                                        v-model="mapping.source"
+                                                        placeholder="选择配置"
+                                                        size="small"
+                                                        style="width: 520px;">
+                                                        <el-option
+                                                            v-for="config in codexConfigs"
+                                                            :key="config"
+                                                            :label="config"
+                                                            :value="config">
+                                                        </el-option>
+                                                    </el-select>
+                                                    <el-input
+                                                        v-else
+                                                        v-model="mapping.source"
+                                                        placeholder="例如: gpt-4o"
+                                                        size="small"
+                                                        style="width: 220px;">
+                                                    </el-input>
+                                                </div>
+                                                <div class="mapping-arrow-compact">→</div>
+                                                <div class="mapping-field-compact">
+                                                    <label>目标模型:</label>
+                                                    <el-input
+                                                        v-model="mapping.target"
+                                                        placeholder="例如: gpt-4-turbo"
+                                                        size="small"
+                                                        style="width: 220px;">
+                                                    </el-input>
+                                                </div>
+                                                <div class="mapping-actions-compact">
+                                                    <el-button
+                                                        type="danger"
+                                                        size="small"
+                                                        @click="removeModelMapping('codex', index)">
+                                                        删除
+                                                    </el-button>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -1452,7 +1512,7 @@
                                                 <label>模型名称:</label>
                                                 <el-input 
                                                     v-model="mapping.model" 
-                                                    placeholder="例如: claude-3-5-sonnet-20241022"
+                                                    placeholder="例如: claude-sonnet-4-20250514"
                                                     size="small">
                                                 </el-input>
                                             </div>

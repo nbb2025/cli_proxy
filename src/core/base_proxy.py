@@ -381,20 +381,33 @@ class BaseProxyService(ABC):
         return body, None
 
     def _apply_model_mapping(self, body_json: dict, model: str, original_body: bytes) -> Tuple[bytes, Optional[str]]:
-        """应用模型→模型映射"""
+        """应用模型→模型映射和配置→模型映射"""
         mappings = self.routing_config.get('modelMappings', {}).get(self.service_name, [])
-        
+
         for mapping in mappings:
             source = mapping.get('source', '').strip()
             target = mapping.get('target', '').strip()
-            
-            if source and target and model == source:
-                # 替换模型名称
-                body_json['model'] = target
-                modified_body = json.dumps(body_json, ensure_ascii=False).encode('utf-8')
-                print(f"模型映射: {source} -> {target}")
-                return modified_body, None
-        
+            source_type = mapping.get('source_type', 'model').strip()
+
+            if not source or not target:
+                continue
+
+            if source_type == 'config':
+                # 配置→模型映射
+                current_config = self._get_current_active_config()
+                if current_config == source:
+                    body_json['model'] = target
+                    modified_body = json.dumps(body_json, ensure_ascii=False).encode('utf-8')
+                    print(f"配置映射: {source} -> {target}")
+                    return modified_body, None
+            elif source_type == 'model':
+                # 模型→模型映射
+                if model == source:
+                    body_json['model'] = target
+                    modified_body = json.dumps(body_json, ensure_ascii=False).encode('utf-8')
+                    print(f"模型映射: {source} -> {target}")
+                    return modified_body, None
+
         return original_body, None
 
     def _apply_config_mapping(self, body_json: dict, model: str, original_body: bytes) -> Tuple[bytes, Optional[str]]:
@@ -414,6 +427,11 @@ class BaseProxyService(ABC):
                     print(f"配置映射失败: 配置 {target_config} 不存在")
         
         return original_body, None
+
+    def _get_current_active_config(self) -> Optional[str]:
+        """获取当前激活的配置名（考虑负载均衡）"""
+        configs = self.config_manager.configs
+        return self._select_config_by_loadbalance(configs)
 
     def _select_config_by_loadbalance(self, configs: Dict[str, Dict[str, Any]]) -> Optional[str]:
         """根据负载均衡策略选择配置名"""

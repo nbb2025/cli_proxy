@@ -706,7 +706,8 @@ const app = createApp({
         const addModelMapping = (service) => {
             routingConfig.modelMappings[service].push({
                 source: '',
-                target: ''
+                target: '',
+                source_type: 'model'
             });
         };
 
@@ -754,6 +755,17 @@ const app = createApp({
                 if (data.config) {
                     Object.assign(routingConfig, data.config);
                     routingMode.value = data.config.mode || 'default';
+
+                    // 向后兼容性处理：为没有source_type字段的映射添加默认值
+                    ['claude', 'codex'].forEach(service => {
+                        if (routingConfig.modelMappings[service]) {
+                            routingConfig.modelMappings[service].forEach(mapping => {
+                                if (!mapping.source_type) {
+                                    mapping.source_type = 'model';
+                                }
+                            });
+                        }
+                    });
                 }
             } catch (error) {
                 console.error('加载路由配置失败:', error);
