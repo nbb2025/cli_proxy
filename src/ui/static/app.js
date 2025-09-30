@@ -52,7 +52,10 @@ const app = createApp({
         const allLogsVisible = ref(false);
         const activeConfigTab = ref('claude');
         const activeLogTab = ref('basic'); // 日志详情Tab状态
-        
+        const showTransformedData = ref(true); // 控制是否显示替换后的数据（默认显示替换后）
+        const activeRequestSubTab = ref('headers'); // 请求tab的子tab：'headers' | 'body'
+        const activeResponseSubTab = ref('headers'); // 响应tab的子tab：'headers' | 'body'
+
         // 配置内容
         const configContents = reactive({
             claude: '',
@@ -1975,6 +1978,9 @@ const app = createApp({
             allLogsVisible,
             activeConfigTab,
             activeLogTab,
+            showTransformedData,
+            activeRequestSubTab,
+            activeResponseSubTab,
             configContents,
             filterContent,
             filterRules,

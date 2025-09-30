@@ -777,7 +777,7 @@
             <div v-if="selectedLog" class="log-detail-content">
                 <!-- Tab切换导航 -->
                 <el-tabs v-model="activeLogTab" class="log-detail-tabs">
-                    <!-- 基本信息Tab -->
+                    <!-- Tab 1: 基础 -->
                     <el-tab-pane label="基础" name="basic">
                         <div class="detail-section">
                             <div class="detail-basic-list">
@@ -828,124 +828,162 @@
                         </div>
                     </el-tab-pane>
 
-                    <!-- 转换前请求头Tab -->
-                    <el-tab-pane label="headers" name="headers_before">
+                    <!-- Tab 2: 请求 -->
+                    <el-tab-pane label="请求" name="request">
                         <div class="detail-section">
-                            <div class="headers-content-flat">
-                                <div v-if="!selectedLog.original_headers || Object.keys(selectedLog.original_headers).length === 0" class="no-headers">
-                                    暂无请求头信息
-                                </div>
-                                <div v-else class="headers-list-flat">
-                                    <div
-                                        v-for="key in getSortedHeaderKeys(selectedLog.original_headers)"
-                                        :key="key"
-                                        class="header-item-flat">
-                                        <span class="header-key-flat">{{ key }}:</span>
-                                        <span class="header-value-flat">{{ selectedLog.original_headers[key] }}</span>
+                            <!-- Switch开关：控制显示替换前/替换后 -->
+                            <div class="request-transform-switch" style="margin-bottom: 16px;">
+                                <span style="margin-right: 8px; color: #606266;">显示替换后数据：</span>
+                                <el-switch v-model="showTransformedData"></el-switch>
+                            </div>
+
+                            <!-- 子Tab：请求头和请求体 -->
+                            <el-tabs v-model="activeRequestSubTab" type="card">
+                                <!-- 子Tab 2.1: 请求头 -->
+                                <el-tab-pane label="请求头" name="headers">
+                                    <div class="headers-content-flat">
+                                        <div v-if="showTransformedData">
+                                            <!-- 显示替换后的请求头 -->
+                                            <div v-if="!selectedLog.target_headers || Object.keys(selectedLog.target_headers).length === 0" class="no-headers">
+                                                暂无请求头信息
+                                            </div>
+                                            <div v-else class="headers-list-flat">
+                                                <div
+                                                    v-for="key in getSortedHeaderKeys(selectedLog.target_headers)"
+                                                    :key="key"
+                                                    class="header-item-flat">
+                                                    <span class="header-key-flat">{{ key }}:</span>
+                                                    <span class="header-value-flat">{{ selectedLog.target_headers[key] }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div v-else>
+                                            <!-- 显示替换前的请求头 -->
+                                            <div v-if="!selectedLog.original_headers || Object.keys(selectedLog.original_headers).length === 0" class="no-headers">
+                                                暂无请求头信息
+                                            </div>
+                                            <div v-else class="headers-list-flat">
+                                                <div
+                                                    v-for="key in getSortedHeaderKeys(selectedLog.original_headers)"
+                                                    :key="key"
+                                                    class="header-item-flat">
+                                                    <span class="header-key-flat">{{ key }}:</span>
+                                                    <span class="header-value-flat">{{ selectedLog.original_headers[key] }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-                            </div>
-                        </div>
-                    </el-tab-pane>
+                                </el-tab-pane>
 
-                    <!-- 转换后请求头Tab -->
-                    <el-tab-pane label="headers(后)" name="headers_after">
-                        <div class="detail-section">
-                            <div class="headers-content-flat">
-                                <div v-if="!selectedLog.target_headers || Object.keys(selectedLog.target_headers).length === 0" class="no-headers">
-                                    暂无请求头信息
-                                </div>
-                                <div v-else class="headers-list-flat">
-                                    <div
-                                        v-for="key in getSortedHeaderKeys(selectedLog.target_headers)"
-                                        :key="key"
-                                        class="header-item-flat">
-                                        <span class="header-key-flat">{{ key }}:</span>
-                                        <span class="header-value-flat">{{ selectedLog.target_headers[key] }}</span>
+                                <!-- 子Tab 2.2: 请求体 -->
+                                <el-tab-pane label="请求体" name="body">
+                                    <div v-if="showTransformedData">
+                                        <!-- 显示替换后的请求体 -->
+                                        <div v-if="!selectedLog.filtered_body" class="no-body">
+                                            暂无请求体内容
+                                        </div>
+                                        <div v-else class="request-body-fullscreen-container">
+                                            <div class="body-actions">
+                                                <el-button
+                                                    size="small"
+                                                    @click="copyToClipboard(decodedRequestBody)">
+                                                    复制内容
+                                                </el-button>
+                                                <el-button
+                                                    size="small"
+                                                    @click="formatFilteredRequestBody">
+                                                    格式化JSON
+                                                </el-button>
+                                            </div>
+                                            <el-input
+                                                v-model="decodedRequestBody"
+                                                type="textarea"
+                                                readonly
+                                                class="request-body-textarea-fullscreen">
+                                            </el-input>
+                                        </div>
                                     </div>
-                                </div>
-                            </div>
+                                    <div v-else>
+                                        <!-- 显示替换前的请求体 -->
+                                        <div v-if="!selectedLog.original_body" class="no-body">
+                                            暂无请求体内容
+                                        </div>
+                                        <div v-else class="request-body-fullscreen-container">
+                                            <div class="body-actions">
+                                                <el-button
+                                                    size="small"
+                                                    @click="copyToClipboard(decodedOriginalRequestBody)">
+                                                    复制内容
+                                                </el-button>
+                                                <el-button
+                                                    size="small"
+                                                    @click="formatOriginalRequestBody">
+                                                    格式化JSON
+                                                </el-button>
+                                            </div>
+                                            <el-input
+                                                v-model="decodedOriginalRequestBody"
+                                                type="textarea"
+                                                readonly
+                                                class="request-body-textarea-fullscreen">
+                                            </el-input>
+                                        </div>
+                                    </div>
+                                </el-tab-pane>
+                            </el-tabs>
                         </div>
                     </el-tab-pane>
 
-                    <!-- 转换前请求体Tab -->
-                    <el-tab-pane label="body" name="body_before">
-                        <div v-if="!selectedLog.original_body" class="no-body">
-                            暂无请求体内容
-                        </div>
-                        <div v-else class="request-body-fullscreen-container">
-                            <div class="body-actions">
-                                <el-button 
-                                    size="small" 
-                                    @click="copyToClipboard(decodedOriginalRequestBody)">
-                                    复制内容
-                                </el-button>
-                                <el-button 
-                                    size="small" 
-                                    @click="formatOriginalRequestBody">
-                                    格式化JSON
-                                </el-button>
-                            </div>
-                            <el-input
-                                v-model="decodedOriginalRequestBody"
-                                type="textarea"
-                                readonly
-                                class="request-body-textarea-fullscreen">
-                            </el-input>
-                        </div>
-                    </el-tab-pane>
-
-                    <!-- 转换后请求体Tab -->
-                    <el-tab-pane label="body(后)" name="body_after">
-                        <div v-if="!selectedLog.filtered_body" class="no-body">
-                            暂无请求体内容
-                        </div>
-                        <div v-else class="request-body-fullscreen-container">
-                            <div class="body-actions">
-                                <el-button 
-                                    size="small" 
-                                    @click="copyToClipboard(decodedRequestBody)">
-                                    复制内容
-                                </el-button>
-                                <el-button 
-                                    size="small" 
-                                    @click="formatFilteredRequestBody">
-                                    格式化JSON
-                                </el-button>
-                            </div>
-                            <el-input
-                                v-model="decodedRequestBody"
-                                type="textarea"
-                                readonly
-                                class="request-body-textarea-fullscreen">
-                            </el-input>
-                        </div>
-                    </el-tab-pane>
-
-                    <!-- 响应数据Tab -->
+                    <!-- Tab 3: 响应 -->
                     <el-tab-pane label="响应" name="response">
-                        <div v-if="!selectedLog.response_content" class="no-body">
-                            暂无响应内容
-                        </div>
-                        <div v-else class="request-body-fullscreen-container">
-                            <div class="body-actions">
-                                <el-button
-                                    size="small"
-                                    @click="copyToClipboard(decodedResponseContent)">
-                                    复制内容
-                                </el-button>
-                                <el-button
-                                    size="small"
-                                    @click="formatResponseContent">
-                                    格式化JSON
-                                </el-button>
-                            </div>
-                            <el-input
-                                v-model="decodedResponseContent"
-                                type="textarea"
-                                readonly
-                                class="request-body-textarea-fullscreen">
-                            </el-input>
+                        <div class="detail-section">
+                            <!-- 子Tab：响应头和响应体 -->
+                            <el-tabs v-model="activeResponseSubTab" type="card">
+                                <!-- 子Tab 3.1: 响应头 -->
+                                <el-tab-pane label="响应头" name="headers">
+                                    <div class="headers-content-flat">
+                                        <div v-if="!selectedLog.response_headers || Object.keys(selectedLog.response_headers).length === 0" class="no-headers">
+                                            暂无响应头信息
+                                        </div>
+                                        <div v-else class="headers-list-flat">
+                                            <div
+                                                v-for="key in getSortedHeaderKeys(selectedLog.response_headers)"
+                                                :key="key"
+                                                class="header-item-flat">
+                                                <span class="header-key-flat">{{ key }}:</span>
+                                                <span class="header-value-flat">{{ selectedLog.response_headers[key] }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </el-tab-pane>
+
+                                <!-- 子Tab 3.2: 响应体 -->
+                                <el-tab-pane label="响应体" name="body">
+                                    <div v-if="!selectedLog.response_content" class="no-body">
+                                        暂无响应内容
+                                    </div>
+                                    <div v-else class="request-body-fullscreen-container">
+                                        <div class="body-actions">
+                                            <el-button
+                                                size="small"
+                                                @click="copyToClipboard(decodedResponseContent)">
+                                                复制内容
+                                            </el-button>
+                                            <el-button
+                                                size="small"
+                                                type="primary">
+                                                解析响应
+                                            </el-button>
+                                        </div>
+                                        <el-input
+                                            v-model="decodedResponseContent"
+                                            type="textarea"
+                                            readonly
+                                            class="request-body-textarea-fullscreen">
+                                        </el-input>
+                                    </div>
+                                </el-tab-pane>
+                            </el-tabs>
                         </div>
                     </el-tab-pane>
                 </el-tabs>

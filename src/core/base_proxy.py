@@ -158,6 +158,7 @@ class BaseProxyService(ABC):
         response_truncated: bool = False,
         total_response_bytes: Optional[int] = None,
         target_url: Optional[str] = None,
+        response_headers: Optional[Dict] = None,
     ):
         """记录请求日志到jsonl文件（异步调度）"""
 
@@ -193,6 +194,9 @@ class BaseProxyService(ABC):
 
                 if response_content:
                     log_entry['response_content'] = base64.b64encode(response_content).decode('utf-8')
+
+                if response_headers:
+                    log_entry['response_headers'] = response_headers
 
                 if response_truncated:
                     log_entry['response_truncated'] = True
@@ -657,12 +661,20 @@ class BaseProxyService(ABC):
                 await asyncio.to_thread(self._record_lb_result, active_config_name, status_code)
                 lb_result_recorded = True
 
-            # 构造返回头，移除跳跃性头信息
-            excluded_response_headers = {'connection', 'transfer-encoding'}
-            response_headers = {
-                k: v for k, v in response.headers.items()
-                if k.lower() not in excluded_response_headers
-            }
+            # 构造返回头，标记被剔除的头信息
+            excluded_response_headers = {}
+            response_headers = {}  # 用于实际返回
+            response_headers_for_log = {}  # 用于日志记录（包含标记）
+
+            for k, v in response.headers.items():
+                k_lower = k.lower()
+                if k_lower in excluded_response_headers:
+                    # 用于日志：保留但标记已剔除
+                    response_headers_for_log[f"{k}[已剔除]"] = v
+                else:
+                    # 用于返回和日志
+                    response_headers[k] = v
+                    response_headers_for_log[k] = v
 
             collected = bytearray()
             total_response_bytes = 0
@@ -731,6 +743,7 @@ class BaseProxyService(ABC):
                         response_truncated=response_truncated,
                         total_response_bytes=total_response_bytes,
                         target_url=target_url,
+                        response_headers=response_headers_for_log,
                     )
 
                     if not lb_result_recorded:
