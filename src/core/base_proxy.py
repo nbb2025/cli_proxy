@@ -211,9 +211,20 @@ class BaseProxyService(ABC):
 
         await asyncio.to_thread(_write_log)
 
-    def _maintain_log_limit(self, new_log_entry: dict, max_logs: int = 100):
+    def _maintain_log_limit(self, new_log_entry: dict):
         """维护日志文件条数限制，只保留最近的max_logs条记录"""
         try:
+            # 从系统配置文件读取日志限制数量
+            system_config_file = self.data_dir / 'system.json'
+            max_logs = 50  # 默认值
+            try:
+                if system_config_file.exists():
+                    with open(system_config_file, 'r', encoding='utf-8') as f:
+                        system_config = json.load(f)
+                        max_logs = system_config.get('logLimit', 50)
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"读取系统配置失败，使用默认日志限制 {max_logs}: {e}")
+
             # 读取现有日志
             existing_logs = []
             if self.traffic_log.exists():
@@ -226,10 +237,10 @@ class BaseProxyService(ABC):
                                 existing_logs.append(log_data)
                             except json.JSONDecodeError:
                                 continue
-            
+
             # 添加新日志条目
             existing_logs.append(new_log_entry)
-            
+
             # 只保留最近的max_logs条记录
             if len(existing_logs) > max_logs:
                 existing_logs = existing_logs[-max_logs:]

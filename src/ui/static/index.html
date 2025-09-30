@@ -1068,27 +1068,39 @@
                 <div class="history-requests-section">
                     <h3>历史所有请求</h3>
                     <div class="all-logs-stats">
-                        <span>共 {{ allLogs.length }} 条日志记录（最近100条）</span>
+                        <span>共 {{ allLogs.length }} 条日志，仅保留最近:
+                            <el-select
+                                v-model="systemConfig.logLimit"
+                                @change="handleLogLimitChange"
+                                size="small"
+                                style="width: 70px; margin: 0 4px;">
+                                <el-option :value="10" label="10"></el-option>
+                                <el-option :value="30" label="30"></el-option>
+                                <el-option :value="50" label="50"></el-option>
+                                <el-option :value="100" label="100"></el-option>
+                            </el-select>
+                            条
+                        </span>
                         <div class="stats-actions">
-                            <el-button 
-                                type="primary" 
-                                size="small" 
+                            <el-button
+                                type="primary"
+                                size="small"
                                 @click="refreshAllLogs"
                                 :loading="allLogsLoading">
                                 刷新
                             </el-button>
-                            <el-button 
-                                type="danger" 
-                                size="small" 
+                            <el-button
+                                type="danger"
+                                size="small"
                                 @click="clearAllLogs">
                                 清空日志
                             </el-button>
                         </div>
                     </div>
-                </div>
-                
-                    <div class="all-logs-table">
-                        <div class="log-header">
+
+                <div class="all-logs-table-container">
+                        <!-- 固定表头 -->
+                        <div class="log-header log-header-fixed">
                             <span>时间</span>
                             <span>服务</span>
                             <span>URL</span>
@@ -1097,7 +1109,9 @@
                             <span>Usage</span>
                             <span>操作</span>
                         </div>
-                        <div class="all-log-entries">
+
+                        <!-- 滚动内容区 -->
+                        <div class="all-log-entries-scrollable">
                             <div v-if="allLogs.length === 0" class="log-entry loading">
                                 <span>{{ allLogsLoading ? '加载日志数据...' : '暂无日志数据' }}</span>
                             </div>
@@ -1106,7 +1120,7 @@
                                 <span :title="formatChannelName(log.channel)" style="white-space: pre-line;">{{ formatServiceWithChannel(log.service, log.channel) }}</span>
                                 <span class="url-column" :title="log.path">{{ formatMethodWithURL(log.method, log.path) }}</span>
                                 <span>
-                                    <el-tag 
+                                    <el-tag
                                         :type="getStatusTagType(log.status_code)"
                                         size="small">
                                         {{ log.status_code || '-' }}
@@ -1117,14 +1131,15 @@
                                     {{ formatUsageSummary(log.usage, log.service) }}
                                 </span>
                                 <span>
-                                    <el-button 
-                                        type="primary" 
+                                    <el-button
+                                        type="primary"
                                         size="small"
                                         link
                                         @click="showLogDetail(log)">
                                         详情
                                     </el-button>
                                 </span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1480,7 +1495,7 @@
                                                     <el-input
                                                         v-else
                                                         v-model="mapping.source"
-                                                        placeholder="例如: gpt-4o"
+                                                        placeholder="例如: gpt-5-codex"
                                                         size="small"
                                                         style="width: 220px;">
                                                     </el-input>
@@ -1490,7 +1505,7 @@
                                                     <label>目标模型:</label>
                                                     <el-input
                                                         v-model="mapping.target"
-                                                        placeholder="例如: gpt-4-turbo"
+                                                        placeholder="例如: gpt-5-codex"
                                                         size="small"
                                                         style="width: 220px;">
                                                     </el-input>
@@ -1603,7 +1618,7 @@
                                                 <label>模型名称:</label>
                                                 <el-input 
                                                     v-model="mapping.model" 
-                                                    placeholder="例如: gpt-4o"
+                                                    placeholder="例如: gpt-5-codex"
                                                     size="small">
                                                 </el-input>
                                             </div>

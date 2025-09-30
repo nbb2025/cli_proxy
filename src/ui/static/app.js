@@ -185,6 +185,11 @@ const app = createApp({
         const isLoadbalanceWeightMode = computed(() => loadbalanceConfig.mode === 'weight-based');
         const loadbalanceDisabledNotice = computed(() => isLoadbalanceWeightMode.value ? '负载均衡生效中' : '');
 
+        // 系统配置
+        const systemConfig = reactive({
+            logLimit: 50
+        });
+
         // 请求状态映射
         const REQUEST_STATUS = {
             PENDING: { text: '已请求', type: 'warning' },
@@ -372,9 +377,10 @@ const app = createApp({
         const getModelOptions = (service) => {
             if (service === 'claude') {
                 return [
-                    { label: 'claude-sonnet-4', value: 'claude-sonnet-4-20250514' },
-                    { label: 'claude-opus-4', value: 'claude-opus-4-20250514' },
-                    { label: 'claude-opus-4-1', value: 'claude-opus-4-1-20250805' }
+                    { label: 'claude-sonnet-4-5-20250929', value: 'claude-sonnet-4-5-20250929' },
+                    { label: 'claude-sonnet-4-20250514', value: 'claude-sonnet-4-20250514' },
+                    { label: 'claude-opus-4-20250514', value: 'claude-opus-4-20250514' },
+                    { label: 'claude-opus-4-1-20250805', value: 'claude-opus-4-1-20250805' }
                 ];
             } else if (service === 'codex') {
                 return [
@@ -1623,14 +1629,14 @@ const app = createApp({
             decodedResponseContent.value = decodeBodyContent(log.response_content);
         };
         
-        // 加载所有日志（默认只显示最近100条）
+        // 加载所有日志
         const loadAllLogs = async () => {
             allLogsLoading.value = true;
             try {
                 const data = await fetchWithErrorHandling('/api/logs/all');
                 const logs = Array.isArray(data) ? data : [];
-                // 只保留最近100条记录
-                allLogs.value = logs.slice(0, 100);
+                // 后端已经根据 logLimit 裁剪，这里直接使用
+                allLogs.value = logs;
             } catch (error) {
                 ElMessage.error('获取所有日志失败: ' + error.message);
                 allLogs.value = [];
@@ -1638,16 +1644,61 @@ const app = createApp({
                 allLogsLoading.value = false;
             }
         };
-        
+
         // 查看所有日志
         const viewAllLogs = async () => {
             allLogsVisible.value = true;
             await loadAllLogs();
         };
-        
+
         // 刷新所有日志
         const refreshAllLogs = () => {
             loadAllLogs();
+        };
+
+        // 加载系统配置
+        const loadSystemConfig = async () => {
+            try {
+                const data = await fetchWithErrorHandling('/api/system/config');
+                if (data.config) {
+                    systemConfig.logLimit = data.config.logLimit || 50;
+                }
+            } catch (error) {
+                console.error('加载系统配置失败:', error);
+                systemConfig.logLimit = 50;
+            }
+        };
+
+        // 处理日志条数变更
+        const handleLogLimitChange = async (newLimit) => {
+            try {
+                allLogsLoading.value = true;
+
+                // 保存配置到后端（后端会自动裁剪日志文件）
+                const response = await fetch('/api/system/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ logLimit: newLimit })
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.error || '保存配置失败');
+                }
+
+                ElMessage.success(`日志条数已设置为 ${newLimit} 条`);
+
+                // 刷新日志列表
+                await loadAllLogs();
+
+            } catch (error) {
+                ElMessage.error('保存配置失败: ' + error.message);
+            } finally {
+                allLogsLoading.value = false;
+            }
         };
         
         // 格式化请求体JSON
@@ -1952,7 +2003,8 @@ const app = createApp({
         window.debugRealtime = checkConnectionStatus;
 
         // 组件挂载
-        onMounted(() => {
+        onMounted(async () => {
+            await loadSystemConfig();
             loadData();
             // 初始化实时连接
             initRealTimeConnections();
@@ -2025,6 +2077,8 @@ const app = createApp({
             viewAllLogs,
             refreshAllLogs,
             clearAllLogs,
+            systemConfig,
+            handleLogLimitChange,
             copyToClipboard,
             formatFilteredRequestBody,
             formatOriginalRequestBody,

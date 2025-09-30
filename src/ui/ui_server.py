@@ -23,6 +23,7 @@ STATIC_DIR = Path(__file__).resolve().parent / 'static'
 LOG_FILE = DATA_DIR / 'proxy_requests.jsonl'
 OLD_LOG_FILE = DATA_DIR / 'traffic_statistics.jsonl'
 HISTORY_FILE = DATA_DIR / 'history_usage.json'
+SYSTEM_CONFIG_FILE = DATA_DIR / 'system.json'
 
 if OLD_LOG_FILE.exists() and not LOG_FILE.exists():
     try:
@@ -336,6 +337,47 @@ def _apply_channel_renames(service: str, rename_map: Dict[str, str]) -> None:
     _rename_log_channels(service, rename_map)
     _sync_router_config_names(service, rename_map)
     _sync_loadbalance_config_names(service, rename_map)
+
+
+def load_system_config() -> Dict[str, Any]:
+    """加载系统配置"""
+    if not SYSTEM_CONFIG_FILE.exists():
+        default_config = {'logLimit': 50}
+        save_system_config(default_config)
+        return default_config
+
+    try:
+        with open(SYSTEM_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        # 确保有默认值
+        config.setdefault('logLimit', 50)
+        return config
+    except (json.JSONDecodeError, OSError):
+        return {'logLimit': 50}
+
+
+def save_system_config(config: Dict[str, Any]) -> None:
+    """保存系统配置"""
+    with open(SYSTEM_CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+
+
+def trim_logs_to_limit(limit: int) -> None:
+    """裁剪日志文件到指定条数"""
+    if not LOG_FILE.exists():
+        return
+
+    logs = load_logs()
+    if len(logs) <= limit:
+        return
+
+    # 只保留最近的 limit 条
+    trimmed_logs = logs[-limit:]
+
+    # 重写日志文件
+    with open(LOG_FILE, 'w', encoding='utf-8') as f:
+        for log in trimmed_logs:
+            f.write(json.dumps(log, ensure_ascii=False) + '\n')
 
 
 def load_logs() -> list[Dict[str, Any]]:
@@ -1164,6 +1206,42 @@ def reset_loadbalance_failures():
             json.dump(config, f, ensure_ascii=False, indent=2)
 
         return jsonify({'success': True, 'message': message})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/system/config', methods=['GET'])
+def get_system_config():
+    """获取系统配置"""
+    try:
+        config = load_system_config()
+        return jsonify({'config': config})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/system/config', methods=['POST'])
+def update_system_config():
+    """更新系统配置"""
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({'error': 'No configuration data provided'}), 400
+
+        # 验证 logLimit
+        log_limit = data.get('logLimit')
+        if log_limit is not None:
+            if not isinstance(log_limit, int) or log_limit not in [10, 30, 50, 100]:
+                return jsonify({'error': 'Invalid logLimit value'}), 400
+
+        # 保存配置
+        save_system_config(data)
+
+        # 如果修改了 logLimit，立即裁剪日志
+        if log_limit is not None:
+            trim_logs_to_limit(log_limit)
+
+        return jsonify({'success': True, 'message': '系统配置保存成功'})
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
