@@ -1180,7 +1180,7 @@
                                                 复制内容
                                             </el-button>
                                             <el-button
-                                                v-if="isCodexLog"
+                                                v-if="canParseSelectedLog"
                                                 size="small"
                                                 :type="isResponseContentParsed ? 'default' : 'primary'"
                                                 :disabled="!responseOriginalContent"

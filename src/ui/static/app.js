@@ -157,6 +157,10 @@ const app = createApp({
         const parsedResponseContent = ref(''); // 解析后的简要响应内容
         const isResponseContentParsed = ref(true); // 是否显示解析视图
         const isCodexLog = ref(false); // 当前日志是否来自codex
+        const isClaudeLog = ref(false); // 当前日志是否来自claude
+        const canParseSelectedLog = computed(() => {
+            return (isCodexLog.value || isClaudeLog.value) && !!responseOriginalContent.value;
+        });
 
         // 实时请求相关数据
         const realtimeRequests = ref([]);
@@ -2488,14 +2492,21 @@ const app = createApp({
             }
         };
 
-        const parseResponseLogContent = (rawText) => {
+        const PARSED_EMPTY_TEXT = '思考消息：无\n响应消息：无\n工具调用：无';
+
+        const parseResponseLogContent = (rawText, serviceName = '') => {
+            const normalizeNewlines = (text) => {
+                if (typeof text !== 'string') {
+                    return '';
+                }
+                return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+            };
+
             const sanitize = (text) => {
                 if (!text) {
                     return '';
                 }
-                const normalized = String(text)
-                    .replace(/\r\n/g, '\n')
-                    .replace(/\r/g, '\n');
+                const normalized = normalizeNewlines(String(text));
                 return normalized
                     .split('\n')
                     .map(line => line.trimEnd())
@@ -2521,17 +2532,53 @@ const app = createApp({
                 return sanitize(cleaned);
             };
 
-            if (!rawText || !rawText.trim()) {
+            const buildOutput = (entries, errors) => {
+                if (!entries.length) {
+                    return {
+                        success: true,
+                        partial: errors.length > 0,
+                        text: PARSED_EMPTY_TEXT,
+                        errors
+                    };
+                }
+
+                const labelMap = {
+                    reasoning: '思考消息',
+                    message: '响应消息',
+                    tool: '工具调用'
+                };
+
+                const totals = entries.reduce((acc, entry) => {
+                    acc[entry.kind] = (acc[entry.kind] || 0) + 1;
+                    return acc;
+                }, {});
+
+                const seen = {};
+                const outputLines = entries.map(entry => {
+                    seen[entry.kind] = (seen[entry.kind] || 0) + 1;
+                    const suffix = totals[entry.kind] > 1 ? `(${seen[entry.kind]})` : '';
+                    if (entry.text && entry.text.includes('\n')) {
+                        return `${labelMap[entry.kind]}${suffix}：\n${entry.text}`;
+                    }
+                    return `${labelMap[entry.kind]}${suffix}：${entry.text ?? ''}`;
+                });
+
+                ['reasoning', 'message', 'tool'].forEach(kind => {
+                    if (!totals[kind]) {
+                        outputLines.push(`${labelMap[kind]}：无`);
+                    }
+                });
+
                 return {
                     success: true,
-                    partial: false,
-                    text: '思考消息：无\n响应消息：无\n工具调用：无',
-                    errors: []
+                    partial: errors.length > 0,
+                    text: outputLines.join('\n'),
+                    errors
                 };
-            }
+            };
 
-            try {
-                const rawLines = rawText.split(/\r?\n/);
+            const parseSseEvents = (text) => {
+                const rawLines = text.split(/\r?\n/);
                 const events = [];
                 let currentEventName = null;
                 let dataLines = [];
@@ -2561,6 +2608,10 @@ const app = createApp({
                 }
                 pushEvent();
 
+                return events;
+            };
+
+            const parseCodexEvents = (events) => {
                 const entries = [];
                 const errors = [];
 
@@ -2670,48 +2721,189 @@ const app = createApp({
                     }
                 }
 
-                if (entries.length === 0) {
-                    return {
-                        success: true,
-                        partial: errors.length > 0,
-                        text: '思考消息：无\n响应消息：无\n工具调用：无',
-                        errors
-                    };
+                return buildOutput(entries, errors);
+            };
+
+            const parseClaudeEvents = (events) => {
+                const entries = [];
+                const errors = [];
+                const activeBlocks = new Map();
+
+                const finalizeBlock = (indexKey, block) => {
+                    if (block.type === 'thinking') {
+                        const normalized = normalizeNewlines(block.text || '');
+                        if (normalized) {
+                            entries.push({ kind: 'reasoning', text: normalized });
+                        }
+                        return;
+                    }
+
+                    if (block.type === 'text') {
+                        const normalized = normalizeNewlines(block.text || '');
+                        if (normalized) {
+                            entries.push({ kind: 'message', text: normalized });
+                        }
+                        return;
+                    }
+
+                    if (block.type === 'tool_use') {
+                        const toolLines = [];
+                        if (block.toolName) {
+                            toolLines.push(`名称：${normalizeNewlines(block.toolName)}`);
+                        }
+
+                        let toolArgs = null;
+                        if (block.partialJson) {
+                            try {
+                                toolArgs = JSON.parse(block.partialJson);
+                            } catch (error) {
+                                errors.push(`工具调用JSON解析失败(index=${indexKey}): ${error.message}`);
+                                if (block.partialJson.trim()) {
+                                    toolLines.push(`原始输入：${normalizeNewlines(block.partialJson)}`);
+                                }
+                            }
+                        }
+
+                        if (!toolArgs && block.inputSnapshot && typeof block.inputSnapshot === 'object' && Object.keys(block.inputSnapshot).length > 0) {
+                            toolArgs = block.inputSnapshot;
+                        }
+
+                        const formatValue = (value) => {
+                            if (value === null || value === undefined) {
+                                return '';
+                            }
+                            if (typeof value === 'string') {
+                                return normalizeNewlines(value);
+                            }
+                            if (typeof value === 'number' || typeof value === 'boolean') {
+                                return String(value);
+                            }
+                            if (Array.isArray(value)) {
+                                return normalizeNewlines(value.map(item => (
+                                    typeof item === 'string' ? item : JSON.stringify(item)
+                                )).join(' '));
+                            }
+                            try {
+                                return normalizeNewlines(JSON.stringify(value));
+                            } catch (error) {
+                                return normalizeNewlines(String(value));
+                            }
+                        };
+
+                        if (toolArgs && typeof toolArgs === 'object') {
+                            if (Object.prototype.hasOwnProperty.call(toolArgs, 'command')) {
+                                const commandValue = Array.isArray(toolArgs.command)
+                                    ? toolArgs.command.join(' ')
+                                    : toolArgs.command;
+                                const formattedCommand = formatValue(commandValue);
+                                if (formattedCommand) {
+                                    toolLines.push(`命令：${formattedCommand}`);
+                                }
+                            }
+
+                            for (const key of Object.keys(toolArgs)) {
+                                if (key === 'command') {
+                                    continue;
+                                }
+                                const formatted = formatValue(toolArgs[key]);
+                                if (formatted) {
+                                    toolLines.push(`${key}：${formatted}`);
+                                }
+                            }
+                        }
+
+                        if (toolLines.length) {
+                            entries.push({ kind: 'tool', text: toolLines.join('\n') });
+                        }
+                        return;
+                    }
+                };
+
+                for (const evt of events) {
+                    if (!evt.event || !evt.data) {
+                        continue;
+                    }
+
+                    let payload;
+                    try {
+                        payload = JSON.parse(evt.data);
+                    } catch (error) {
+                        errors.push(`JSON解析失败: ${error.message}`);
+                        continue;
+                    }
+
+                    if (evt.event === 'content_block_start') {
+                        const indexKey = String(payload?.index ?? '');
+                        const blockInfo = payload?.content_block || {};
+                        if (!indexKey || !blockInfo?.type) {
+                            continue;
+                        }
+                        activeBlocks.set(indexKey, {
+                            type: blockInfo.type,
+                            text: '',
+                            partialJson: '',
+                            toolName: blockInfo.name || '',
+                            inputSnapshot: blockInfo.input,
+                        });
+                    } else if (evt.event === 'content_block_delta') {
+                        const indexKey = String(payload?.index ?? '');
+                        const block = activeBlocks.get(indexKey);
+                        if (!block) {
+                            continue;
+                        }
+                        const delta = payload?.delta;
+                        if (!delta) {
+                            continue;
+                        }
+
+                        if (delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {
+                            block.text += delta.thinking;
+                        } else if (delta.type === 'text_delta' && typeof delta.text === 'string') {
+                            block.text += delta.text;
+                        } else if (delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
+                            block.partialJson += delta.partial_json;
+                        }
+                    } else if (evt.event === 'content_block_stop') {
+                        const indexKey = String(payload?.index ?? '');
+                        const block = activeBlocks.get(indexKey);
+                        if (!block) {
+                            continue;
+                        }
+                        finalizeBlock(indexKey, block);
+                        activeBlocks.delete(indexKey);
+                    }
                 }
 
-                const labelMap = {
-                    reasoning: '思考消息',
-                    message: '响应消息',
-                    tool: '工具调用'
-                };
-
-                const totals = entries.reduce((acc, entry) => {
-                    acc[entry.kind] = (acc[entry.kind] || 0) + 1;
-                    return acc;
-                }, {});
-
-                const seen = {};
-                const outputLines = entries.map(entry => {
-                    seen[entry.kind] = (seen[entry.kind] || 0) + 1;
-                    const suffix = totals[entry.kind] > 1 ? `(${seen[entry.kind]})` : '';
-                    if (entry.text.includes('\n')) {
-                        return `${labelMap[entry.kind]}${suffix}：\n${entry.text}`;
+                if (activeBlocks.size > 0) {
+                    for (const [indexKey, block] of activeBlocks.entries()) {
+                        errors.push(`内容块未正常结束(index=${indexKey})`);
+                        finalizeBlock(indexKey, block);
                     }
-                    return `${labelMap[entry.kind]}${suffix}：${entry.text}`;
-                });
+                    activeBlocks.clear();
+                }
 
-                ['reasoning', 'message', 'tool'].forEach(kind => {
-                    if (!totals[kind]) {
-                        outputLines.push(`${labelMap[kind]}：无`);
-                    }
-                });
+                return buildOutput(entries, errors);
+            };
 
+            if (!rawText || !rawText.trim()) {
                 return {
                     success: true,
-                    partial: errors.length > 0,
-                    text: outputLines.join('\n'),
-                    errors
+                    partial: false,
+                    text: PARSED_EMPTY_TEXT,
+                    errors: []
                 };
+            }
+
+            try {
+                const events = parseSseEvents(rawText);
+                const lowerService = (serviceName || '').toLowerCase();
+                const hasClaudeBlocks = events.some(evt => evt.event && evt.event.startsWith('content_block'));
+
+                if (lowerService === 'claude' || hasClaudeBlocks) {
+                    return parseClaudeEvents(events);
+                }
+
+                return parseCodexEvents(events);
             } catch (error) {
                 return {
                     success: false,
@@ -2730,10 +2922,14 @@ const app = createApp({
             decodedRequestBody.value = decodeBodyContent(log.filtered_body);
             decodedOriginalRequestBody.value = decodeBodyContent(log.original_body);
             responseOriginalContent.value = decodeBodyContent(log.response_content);
-            isCodexLog.value = (log?.service || '').toLowerCase() === 'codex';
+            const serviceName = (log?.service || '').toLowerCase();
+            isCodexLog.value = serviceName === 'codex';
+            isClaudeLog.value = serviceName === 'claude';
 
-            if (isCodexLog.value && responseOriginalContent.value) {
-                const parsedResult = parseResponseLogContent(responseOriginalContent.value);
+            const shouldAttemptParse = (isCodexLog.value || isClaudeLog.value) && !!responseOriginalContent.value;
+
+            if (shouldAttemptParse) {
+                const parsedResult = parseResponseLogContent(responseOriginalContent.value, log?.service);
                 if (parsedResult.success) {
                     parsedResponseContent.value = parsedResult.text;
                     decodedResponseContent.value = parsedResponseContent.value;
@@ -2756,7 +2952,7 @@ const app = createApp({
         };
 
         const toggleParsedResponse = () => {
-            if (!isCodexLog.value || !responseOriginalContent.value) {
+            if (!canParseSelectedLog.value) {
                 return;
             }
 
@@ -2765,7 +2961,7 @@ const app = createApp({
                 decodedResponseContent.value = responseOriginalContent.value;
             } else {
                 if (!parsedResponseContent.value) {
-                    const parsedResult = parseResponseLogContent(responseOriginalContent.value);
+                    const parsedResult = parseResponseLogContent(responseOriginalContent.value, selectedLog.value?.service);
                     if (parsedResult.success) {
                         parsedResponseContent.value = parsedResult.text;
                         if (parsedResult.partial) {
@@ -2779,7 +2975,7 @@ const app = createApp({
                 }
 
                 isResponseContentParsed.value = true;
-                decodedResponseContent.value = parsedResponseContent.value || '思考消息：无\n响应消息：无\n工具调用：无';
+                decodedResponseContent.value = parsedResponseContent.value || PARSED_EMPTY_TEXT;
             }
         };
         
@@ -3270,6 +3466,8 @@ const app = createApp({
             isResponseContentParsed,
             toggleParsedResponse,
             isCodexLog,
+            isClaudeLog,
+            canParseSelectedLog,
             decodedResponseContent,
             formatUsageValue,
             formatUsageSummary,
