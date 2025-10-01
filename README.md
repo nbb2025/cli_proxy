@@ -183,8 +183,8 @@ wire_api = "responses"
     {"name": "ANTHROPIC_AUTH_TOKEN", "value": "-"}
   ]
 }
-3. 重新打开对话框即可
 ```
+3. 重新打开 claude code 对话框即可
 
 
 ## 开发指南
