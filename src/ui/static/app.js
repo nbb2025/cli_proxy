@@ -70,8 +70,26 @@ const app = createApp({
             codex: []
         });
 
-        // 配置编辑模式 'interactive' | 'json'
-        const configEditMode = ref('interactive');
+        // 配置编辑模式 'interactive' | 'json' | 'merged'
+        const configEditMode = ref('merged');
+
+        // 合并模式的配置数据
+        const mergedConfigs = reactive({
+            claude: [],  // 每个元素是一个分组
+            codex: []
+        });
+
+        // 添加站点弹窗相关
+        const mergedDialogVisible = ref(false);
+        const mergedDialogService = ref('');
+        const mergedDialogDraft = reactive({
+            baseUrl: 'https://',
+            weight: 0,
+            authType: 'auth_token',
+            entries: []  // [{ name, authValue, active }]
+        });
+        const mergedDialogMode = ref('add');
+        const mergedDialogEditIndex = ref(-1);
 
         // 新增站点编辑状态
         const editingNewSite = reactive({
@@ -1245,8 +1263,13 @@ const app = createApp({
                         site.active = false;
                     });
                 }
-                // 插入到第一个位置
-                friendlyConfigs[service].unshift({...newSiteData[service]});
+                // 加入列表并按照规则重新排序
+                const siteWithId = {
+                    ...newSiteData[service],
+                    __mergedId: generateEntryId()
+                };
+                friendlyConfigs[service].push(siteWithId);
+                sortFriendlyList(service);
                 editingNewSite[service] = false;
                 syncFormToJson(service);
 
@@ -1285,6 +1308,7 @@ const app = createApp({
                 );
                 
                 friendlyConfigs[service].splice(index, 1);
+                sortFriendlyList(service);
                 syncFormToJson(service);
                 
                 // 自动保存配置
@@ -1307,7 +1331,10 @@ const app = createApp({
                         site.active = false;
                     }
                 });
+            } else {
+                friendlyConfigs[service][activeIndex].active = false;
             }
+            sortFriendlyList(service);
             syncFormToJson(service);
         };
 
@@ -1317,6 +1344,7 @@ const app = createApp({
 
             try {
                 syncInProgress.value = true;
+                sortFriendlyList(service);
                 const jsonObj = {};
                 friendlyConfigs[service].forEach(site => {
                     if (site.name && site.name.trim()) {
@@ -1392,12 +1420,14 @@ const app = createApp({
                             authType: authType,
                             authValue: authValue,
                             active: config.active || false,
-                            weight: weightValue
+                            weight: weightValue,
+                            __mergedId: generateEntryId()
                         });
                     }
                 });
 
                 friendlyConfigs[service] = sites;
+                sortFriendlyList(service);
             } catch (error) {
                 console.error('同步JSON到表单失败:', error);
                 // JSON解析失败时保持现有表单数据不变
@@ -1408,6 +1438,841 @@ const app = createApp({
                 });
             }
         };
+
+        // ========== 合并模式相关函数 ==========
+
+        /**
+         * URL 校验辅助函数
+         */
+        const isValidUrl = (str) => {
+            try {
+                const url = new URL(str);
+                return url.protocol === 'http:' || url.protocol === 'https:';
+            } catch {
+                return false;
+            }
+        };
+
+        const generateEntryId = () => `merged-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+        const ensureEntryId = (site) => {
+            if (!site.__mergedId) {
+                site.__mergedId = generateEntryId();
+            }
+            return site.__mergedId;
+        };
+
+        const findFriendlyBySiteId = (service, siteId) => (
+            friendlyConfigs[service].find(site => site.__mergedId === siteId)
+        );
+
+        const findFriendlyIndexBySiteId = (service, siteId) => (
+            friendlyConfigs[service].findIndex(site => site.__mergedId === siteId)
+        );
+
+        const normalizeValue = (value) => (value ?? '').toString().trim();
+
+        const getWeightValue = (value) => {
+            const num = Number(value);
+            return Number.isFinite(num) ? num : 0;
+        };
+
+        const compareByName = (left, right) => (
+            normalizeValue(left).localeCompare(normalizeValue(right), 'zh-Hans-CN')
+        );
+
+        const sortEntryList = (entries = []) => {
+            entries.sort((a, b) => {
+                if (a.active !== b.active) {
+                    return a.active ? -1 : 1;
+                }
+                return compareByName(a.name, b.name);
+            });
+        };
+
+        const sortFriendlyList = (service) => {
+            friendlyConfigs[service].sort((a, b) => {
+                if (a.active !== b.active) {
+                    return a.active ? -1 : 1;
+                }
+
+                const weightDiff = getWeightValue(b.weight) - getWeightValue(a.weight);
+                if (weightDiff !== 0) {
+                    return weightDiff;
+                }
+
+                const nameCompare = compareByName(a.name, b.name);
+                if (nameCompare !== 0) {
+                    return nameCompare;
+                }
+
+                return compareByName(a.baseUrl, b.baseUrl);
+            });
+        };
+
+        const sortMergedGroups = (service) => {
+            mergedConfigs[service].forEach(group => {
+                if (Array.isArray(group.entries)) {
+                    sortEntryList(group.entries);
+                }
+            });
+
+            mergedConfigs[service].sort((a, b) => {
+                const aActive = Array.isArray(a.entries) && a.entries.some(entry => entry.active);
+                const bActive = Array.isArray(b.entries) && b.entries.some(entry => entry.active);
+
+                if (aActive !== bActive) {
+                    return aActive ? -1 : 1;
+                }
+
+                const weightDiff = getWeightValue(b.weight) - getWeightValue(a.weight);
+                if (weightDiff !== 0) {
+                    return weightDiff;
+                }
+
+                return compareByName(a.baseUrl, b.baseUrl);
+            });
+        };
+
+        /**
+         * 检测并统一组内的权重和认证方式
+         * 返回不一致的字段列表
+         */
+        const normalizeGroupValues = (service, group) => {
+            const inconsistent = [];
+            const standardWeight = group.weight;
+            const standardAuthType = group.authType;
+
+            group.entries.forEach(entry => {
+                // 在 friendlyConfigs 中找到对应项并修正
+                const friendlyItem = findFriendlyBySiteId(service, entry.siteId);
+
+                if (friendlyItem) {
+                    if (friendlyItem.weight !== standardWeight) {
+                        if (!inconsistent.includes('权重')) {
+                            inconsistent.push('权重');
+                        }
+                        friendlyItem.weight = standardWeight;
+                    }
+                    if (friendlyItem.authType !== standardAuthType) {
+                        if (!inconsistent.includes('认证方式')) {
+                            inconsistent.push('认证方式');
+                        }
+                        friendlyItem.authType = standardAuthType;
+                    }
+                }
+            });
+
+            // 如果修正了数据，同步到 JSON
+            if (inconsistent.length > 0) {
+                syncFormToJson(service);
+            }
+
+            return inconsistent;
+        };
+
+        /**
+         * 判断分组内是否存在激活秘钥
+         */
+        const isMergedGroupActive = (group) => (
+            group && Array.isArray(group.entries) && group.entries.some(entry => entry.active)
+        );
+
+        /**
+         * 从交互模式配置构建合并视图
+         */
+        const buildMergedFromFriendly = (service) => {
+            const friendly = friendlyConfigs[service];
+            const grouped = new Map(); // baseUrl -> group对象
+
+            sortFriendlyList(service);
+
+            // 第一步：按 baseUrl 分组
+            friendly.forEach((site, idx) => {
+                if (!site.baseUrl || !site.baseUrl.trim()) {
+                    console.warn(`站点 ${site.name} 缺少 base_url`);
+                    return;
+                }
+
+                const key = site.baseUrl.trim();
+                if (!grouped.has(key)) {
+                    grouped.set(key, {
+                        baseUrl: key,
+                        weight: site.weight || 0,
+                        authType: site.authType || 'auth_token',
+                        entries: []
+                    });
+                }
+
+                const group = grouped.get(key);
+                const siteId = ensureEntryId(site);
+
+                group.entries.push({
+                    name: site.name,
+                    authValue: site.authValue || '',
+                    active: site.active || false,
+                    derivedId: site.__mergedId || `${site.name}_${idx}`,
+                    siteId,
+                    lastSyncedName: site.name
+                });
+            });
+
+            // 第二步：检测并统一组内的 weight 和 authType
+            grouped.forEach((group, baseUrl) => {
+                const inconsistent = normalizeGroupValues(service, group);
+                if (inconsistent.length > 0) {
+                    ElMessage.warning(
+                        `站点组 ${baseUrl} 内存在不一致的${inconsistent.join('、')}，已自动统一为第一条配置`
+                    );
+                }
+            });
+
+            // 第三步：更新 mergedConfigs
+            mergedConfigs[service] = Array.from(grouped.values());
+            sortMergedGroups(service);
+        };
+
+        /**
+         * 从合并视图重建交互模式配置
+         * 用于保存前的数据校验和重建
+         */
+        const rebuildFriendlyFromMerged = (service) => {
+            const merged = mergedConfigs[service];
+            const newFriendly = [];
+
+            merged.forEach(group => {
+                group.entries.forEach(entry => {
+                    const siteId = entry.siteId || generateEntryId();
+                    entry.siteId = siteId;
+                    entry.lastSyncedName = entry.name;
+                    newFriendly.push({
+                        name: entry.name,
+                        baseUrl: group.baseUrl,
+                        weight: group.weight,
+                        authType: group.authType,
+                        authValue: entry.authValue,
+                        active: entry.active,
+                        __mergedId: siteId
+                    });
+                });
+            });
+
+            friendlyConfigs[service] = newFriendly;
+            sortFriendlyList(service);
+            syncFormToJson(service);
+        };
+
+        /**
+         * 应用分组级修改（权重、认证方式、base_url）
+         */
+        const applyMergedGroupUpdate = (service, groupIndex) => {
+            const group = mergedConfigs[service][groupIndex];
+
+            // URL 校验
+            if (!isValidUrl(group.baseUrl)) {
+                ElMessage.warning('目标地址格式不正确，请输入有效的 HTTP/HTTPS URL');
+                return;
+            }
+
+            // 更新所有该组的 friendlyConfigs 项
+            group.entries.forEach(entry => {
+                const friendlyItem = findFriendlyBySiteId(service, entry.siteId);
+
+                if (friendlyItem) {
+                    friendlyItem.baseUrl = group.baseUrl;
+                    friendlyItem.weight = group.weight;
+                    friendlyItem.authType = group.authType;
+                }
+            });
+
+            sortFriendlyList(service);
+            sortMergedGroups(service);
+            // 同步到 JSON
+            syncFormToJson(service);
+        };
+
+        /**
+         * 自动生成站点名称
+         * 策略：分析同 baseUrl 前缀的现有命名，提取最大递增后缀
+         */
+        const autoGenerateName = (service, baseUrl) => {
+            try {
+                const hostname = new URL(baseUrl).hostname;
+                const prefix = hostname.split('.')[0]; // 例如 "api" 或 "privnode"
+
+                // 查找所有以该前缀开头的站点名
+                const existingNames = friendlyConfigs[service]
+                    .filter(site => site.baseUrl === baseUrl)
+                    .map(site => site.name);
+
+                // 提取数字后缀
+                const numbers = existingNames
+                    .map(name => {
+                        const match = name.match(/(\d+)$/);
+                        return match ? parseInt(match[1]) : 0;
+                    })
+                    .filter(n => n > 0);
+
+                const maxNum = numbers.length > 0 ? Math.max(...numbers) : 0;
+                return `${prefix}-${maxNum + 1}`;
+
+            } catch (e) {
+                // URL 解析失败，使用随机名称
+                return `site-${Date.now()}`;
+            }
+        };
+
+        /**
+         * 强制单一激活（全局工具方法）
+         */
+        const enforceSingleActive = (service, targetSiteId) => {
+            friendlyConfigs[service].forEach(site => {
+                site.active = (site.__mergedId === targetSiteId);
+            });
+
+            sortFriendlyList(service);
+            // 更新合并视图
+            buildMergedFromFriendly(service);
+            sortMergedGroups(service);
+
+            // 同步到 JSON
+            syncFormToJson(service);
+        };
+
+        /**
+         * 切换合并模式中的激活状态
+         */
+        const toggleMergedActive = (service, groupIndex, entryIndex, newValue) => {
+            const entry = mergedConfigs[service][groupIndex].entries[entryIndex];
+
+            if (newValue) {
+                // 激活当前项时，关闭所有其他项
+                ElMessageBox.confirm(
+                    '激活此秘钥会自动关闭其他所有站点的激活状态，是否继续？',
+                    '提示',
+                    { type: 'warning' }
+                ).then(() => {
+                    enforceSingleActive(service, entry.siteId);
+                }).catch(() => {
+                    // 用户取消，恢复原状态
+                    entry.active = false;
+                });
+            } else {
+                // 关闭当前项
+                const friendlyItem = findFriendlyBySiteId(service, entry.siteId);
+                if (friendlyItem) {
+                    friendlyItem.active = false;
+                    sortFriendlyList(service);
+                    sortMergedGroups(service);
+                    syncFormToJson(service);
+                }
+            }
+        };
+
+        /**
+         * 更新秘钥值（同步到 friendlyConfigs）
+         */
+        const updateMergedEntryAuth = (service, groupIndex, entryIndex) => {
+            const group = mergedConfigs[service][groupIndex];
+            const entry = group.entries[entryIndex];
+
+            // 在 friendlyConfigs 中找到对应项并更新
+            const friendlyItem = findFriendlyBySiteId(service, entry.siteId);
+
+            if (friendlyItem) {
+                friendlyItem.authValue = entry.authValue;
+                syncFormToJson(service);
+            }
+        };
+
+        /**
+         * 更新站点名称（保持唯一并同步）
+         */
+        const applyMergedEntryNameUpdate = (service, groupIndex, entryIndex) => {
+            const entry = mergedConfigs[service][groupIndex].entries[entryIndex];
+            const previousName = entry.lastSyncedName || '';
+            const trimmed = (entry.name || '').trim();
+
+            if (!trimmed) {
+                ElMessage.warning('站点名称不能为空');
+                entry.name = previousName;
+                return;
+            }
+
+            if (trimmed === previousName) {
+                entry.name = trimmed;
+                return;
+            }
+
+            const hasConflict = friendlyConfigs[service].some(site => (
+                site.__mergedId !== entry.siteId && site.name === trimmed
+            ));
+
+            if (hasConflict) {
+                ElMessage.error(`站点名称 "${trimmed}" 已存在，请使用其他名称`);
+                entry.name = previousName;
+                return;
+            }
+
+            entry.name = trimmed;
+
+            const friendlyItem = findFriendlyBySiteId(service, entry.siteId);
+            if (friendlyItem) {
+                friendlyItem.name = trimmed;
+                entry.lastSyncedName = trimmed;
+                sortEntryList(mergedConfigs[service][groupIndex].entries);
+                sortFriendlyList(service);
+                sortMergedGroups(service);
+                syncFormToJson(service);
+            } else {
+                entry.lastSyncedName = trimmed;
+                sortEntryList(mergedConfigs[service][groupIndex].entries);
+                sortMergedGroups(service);
+            }
+        };
+
+        /**
+         * 添加秘钥到现有分组
+         */
+        const addMergedEntry = (service, groupIndex) => {
+            const group = mergedConfigs[service][groupIndex];
+
+            // 自动生成站点名称
+            const newName = autoGenerateName(service, group.baseUrl);
+
+            const newSiteId = generateEntryId();
+            const newEntry = {
+                name: newName,
+                authValue: '',
+                active: false,
+                derivedId: newSiteId,
+                siteId: newSiteId,
+                lastSyncedName: newName
+            };
+
+            group.entries.push(newEntry);
+            sortEntryList(group.entries);
+
+            // 同步到 friendlyConfigs
+            friendlyConfigs[service].push({
+                name: newEntry.name,
+                baseUrl: group.baseUrl,
+                weight: group.weight,
+                authType: group.authType,
+                authValue: '',
+                active: false,
+                __mergedId: newSiteId
+            });
+            sortFriendlyList(service);
+            sortMergedGroups(service);
+            syncFormToJson(service);
+        };
+
+        /**
+         * 删除秘钥
+         */
+        const removeMergedEntry = (service, groupIndex, entryIndex) => {
+            const group = mergedConfigs[service][groupIndex];
+            const entry = group.entries[entryIndex];
+
+            ElMessageBox.confirm(
+                `确定要删除秘钥 "${entry.name}" 吗？`,
+                '提示',
+                { type: 'warning' }
+            ).then(() => {
+                // 从合并视图删除
+                group.entries.splice(entryIndex, 1);
+
+                // 从 friendlyConfigs 删除
+                const friendlyIndex = findFriendlyIndexBySiteId(service, entry.siteId);
+                if (friendlyIndex > -1) {
+                    friendlyConfigs[service].splice(friendlyIndex, 1);
+                }
+
+                // 如果组内没有秘钥了，删除整个分组
+                if (group.entries.length === 0) {
+                    mergedConfigs[service].splice(groupIndex, 1);
+                    ElMessage.info('该站点组已无秘钥，已自动删除');
+                }
+
+                sortFriendlyList(service);
+                sortMergedGroups(service);
+                syncFormToJson(service);
+                ElMessage.success('删除成功');
+
+            }).catch(() => {});
+        };
+
+        /**
+         * 删除整个分组
+         */
+        const deleteMergedGroup = (service, groupIndex) => {
+            const group = mergedConfigs[service][groupIndex];
+
+            ElMessageBox.confirm(
+                `确定要删除站点组 "${group.baseUrl}" 及其下所有 ${group.entries.length} 个秘钥吗？`,
+                '提示',
+                { type: 'warning' }
+            ).then(async () => {
+                // 删除所有关联的 friendlyConfigs 项
+                group.entries.forEach(entry => {
+                    const index = findFriendlyIndexBySiteId(service, entry.siteId);
+                    if (index > -1) {
+                        friendlyConfigs[service].splice(index, 1);
+                    }
+                });
+
+                // 删除分组
+                mergedConfigs[service].splice(groupIndex, 1);
+
+                sortFriendlyList(service);
+                sortMergedGroups(service);
+                syncFormToJson(service);
+
+                try {
+                    await saveConfigForService(service);
+                    buildMergedFromFriendly(service);
+                    ElMessage.success('站点组删除成功');
+                } catch (error) {
+                    console.error('删除站点组后保存失败:', error);
+                }
+
+            }).catch(() => {});
+        };
+
+        /**
+         * 切换到合并模式
+         */
+        const switchToMergedMode = () => {
+            configEditMode.value = 'merged';
+            buildMergedFromFriendly(activeConfigTab.value);
+        };
+
+        /**
+         * 保存合并模式配置
+         */
+        const saveMergedConfig = async (service) => {
+            // 1. 校验所有分组
+            for (const group of mergedConfigs[service]) {
+                // 校验 baseUrl
+                if (!isValidUrl(group.baseUrl)) {
+                    ElMessage.error(`站点组 ${group.baseUrl} 的地址格式不正确`);
+                    return;
+                }
+
+                // 校验权重
+                if (!Number.isFinite(group.weight) || group.weight < 0) {
+                    ElMessage.error(`站点组 ${group.baseUrl} 的权重必须为非负整数`);
+                    return;
+                }
+
+                // 校验秘钥
+                const invalidEntries = group.entries.filter(
+                    entry => !entry.authValue || !entry.authValue.trim()
+                );
+                if (invalidEntries.length > 0) {
+                    ElMessage.error(
+                        `站点组 ${group.baseUrl} 中有秘钥未填写：${invalidEntries.map(e => e.name).join(', ')}`
+                    );
+                    return;
+                }
+            }
+
+            // 2. 从合并视图重建 friendlyConfigs
+            rebuildFriendlyFromMerged(service);
+
+            // 3. 调用现有保存逻辑
+            await saveConfigForService(service);
+        };
+
+        /**
+         * 打开添加站点弹窗
+         */
+        const openMergedDialog = (service) => {
+            mergedDialogService.value = service;
+            mergedDialogMode.value = 'add';
+            mergedDialogEditIndex.value = -1;
+            mergedDialogDraft.baseUrl = 'https://';
+            mergedDialogDraft.weight = 0;
+            mergedDialogDraft.authType = 'auth_token';
+            mergedDialogDraft.entries = [
+                { name: '', authValue: '', active: false, siteId: null, lastSyncedName: '' }
+            ];
+            mergedDialogVisible.value = true;
+        };
+
+        /**
+         * 打开编辑弹窗
+         */
+        const editMergedGroup = (service, groupIndex) => {
+            const group = mergedConfigs[service]?.[groupIndex];
+            if (!group) {
+                ElMessage.error('未找到对应的站点组');
+                return;
+            }
+
+            mergedDialogService.value = service;
+            mergedDialogMode.value = 'edit';
+            mergedDialogEditIndex.value = groupIndex;
+
+            mergedDialogDraft.baseUrl = group.baseUrl;
+            mergedDialogDraft.weight = group.weight;
+            mergedDialogDraft.authType = group.authType;
+            mergedDialogDraft.entries = group.entries.length > 0
+                ? group.entries.map(entry => ({
+                    name: entry.name,
+                    authValue: entry.authValue,
+                    active: entry.active,
+                    siteId: entry.siteId || null,
+                    lastSyncedName: entry.lastSyncedName || entry.name
+                }))
+                : [{ name: '', authValue: '', active: false, siteId: null, lastSyncedName: '' }];
+
+            sortEntryList(mergedDialogDraft.entries);
+
+            mergedDialogVisible.value = true;
+        };
+
+        /**
+         * 弹窗中添加秘钥行
+         */
+        const addDialogEntry = () => {
+            mergedDialogDraft.entries.push({
+                name: '',
+                authValue: '',
+                active: false,
+                siteId: null,
+                lastSyncedName: ''
+            });
+        };
+
+        /**
+         * 弹窗中删除秘钥行
+         */
+        const removeDialogEntry = (index) => {
+            if (mergedDialogDraft.entries.length <= 1) {
+                ElMessage.warning('至少保留一个秘钥');
+                return;
+            }
+            mergedDialogDraft.entries.splice(index, 1);
+        };
+
+        /**
+         * 取消弹窗
+         */
+        const cancelMergedDialog = () => {
+            mergedDialogVisible.value = false;
+            mergedDialogMode.value = 'add';
+            mergedDialogEditIndex.value = -1;
+        };
+
+        /**
+         * 提交站点分组
+         */
+        const submitMergedDialog = async () => {
+            const service = mergedDialogService.value;
+            const draft = mergedDialogDraft;
+            const mode = mergedDialogMode.value;
+
+            if (!service) {
+                ElMessage.error('未选择需要保存的服务');
+                return;
+            }
+
+            if (!isValidUrl(draft.baseUrl)) {
+                ElMessage.error('目标地址格式不正确，请输入有效的 HTTP/HTTPS URL');
+                return;
+            }
+
+            if (!Number.isFinite(draft.weight) || draft.weight < 0) {
+                ElMessage.error('权重必须为非负整数');
+                return;
+            }
+
+            if (!Array.isArray(draft.entries) || draft.entries.length === 0) {
+                ElMessage.error('至少保留一个秘钥');
+                return;
+            }
+
+            draft.entries.forEach(entry => {
+                entry.name = (entry.name || '').trim();
+                entry.authValue = (entry.authValue || '').trim();
+                entry.lastSyncedName = entry.lastSyncedName || entry.name;
+            });
+
+            sortEntryList(draft.entries);
+
+            const invalidEntries = draft.entries.filter(entry => !entry.name || !entry.authValue);
+            if (invalidEntries.length > 0) {
+                ElMessage.error('所有秘钥的站点名称和秘钥值均为必填项');
+                return;
+            }
+
+            const nameCounts = new Map();
+            for (const entry of draft.entries) {
+                const count = (nameCounts.get(entry.name) || 0) + 1;
+                nameCounts.set(entry.name, count);
+                if (count > 1) {
+                    ElMessage.error('同一分组内站点名称不能重复');
+                    return;
+                }
+            }
+
+            const entrySiteIds = new Set(
+                draft.entries
+                    .map(entry => entry.siteId)
+                    .filter(Boolean)
+            );
+
+            const existingNames = friendlyConfigs[service]
+                .filter(site => !entrySiteIds.has(site.__mergedId))
+                .map(site => site.name);
+
+            const duplicateEntries = draft.entries.filter(entry => existingNames.includes(entry.name));
+            if (duplicateEntries.length > 0) {
+                try {
+                    await ElMessageBox.confirm(
+                        `检测到重复的站点名称：${duplicateEntries.map(e => e.name).join(', ')}。是否自动追加后缀？`,
+                        '提示',
+                        { type: 'warning' }
+                    );
+
+                    duplicateEntries.forEach(entry => {
+                        let suffix = 1;
+                        let newName = `${entry.name}-${suffix}`;
+                        while (
+                            existingNames.includes(newName) ||
+                            draft.entries.some(other => other !== entry && other.name === newName)
+                        ) {
+                            suffix++;
+                            newName = `${entry.name}-${suffix}`;
+                        }
+                        existingNames.push(newName);
+                        entry.name = newName;
+                        entry.lastSyncedName = newName;
+                    });
+
+                } catch {
+                    return;
+                }
+            }
+
+            let activeEntry = null;
+            draft.entries.forEach(entry => {
+                if (entry.active && !activeEntry) {
+                    activeEntry = entry;
+                } else if (entry.active && activeEntry) {
+                    entry.active = false;
+                }
+            });
+
+            if (mode === 'add') {
+                const newSites = draft.entries.map(entry => {
+                    const siteId = generateEntryId();
+                    entry.siteId = siteId;
+                    entry.lastSyncedName = entry.name;
+                    return {
+                        name: entry.name,
+                        baseUrl: draft.baseUrl,
+                        weight: draft.weight,
+                        authType: draft.authType,
+                        authValue: entry.authValue,
+                        active: entry.active,
+                        __mergedId: siteId
+                    };
+                });
+
+                friendlyConfigs[service].push(...newSites);
+                sortFriendlyList(service);
+                sortMergedGroups(service);
+
+                if (activeEntry) {
+                    enforceSingleActive(service, activeEntry.siteId);
+                } else {
+                    syncFormToJson(service);
+                }
+
+            } else {
+                const groupIndex = mergedDialogEditIndex.value;
+                if (groupIndex < 0 || !mergedConfigs[service]?.[groupIndex]) {
+                    ElMessage.error('待编辑的站点组不存在');
+                    return;
+                }
+
+                const originalGroup = mergedConfigs[service][groupIndex];
+                const draftSiteIds = new Set(draft.entries.map(entry => entry.siteId).filter(Boolean));
+
+                originalGroup.entries.forEach(entry => {
+                    if (!draftSiteIds.has(entry.siteId)) {
+                        const friendlyIndex = findFriendlyIndexBySiteId(service, entry.siteId);
+                        if (friendlyIndex > -1) {
+                            friendlyConfigs[service].splice(friendlyIndex, 1);
+                        }
+                    }
+                });
+
+                draft.entries.forEach(entry => {
+                    if (entry.siteId) {
+                        const friendlyItem = findFriendlyBySiteId(service, entry.siteId);
+                        if (friendlyItem) {
+                            friendlyItem.name = entry.name;
+                            friendlyItem.baseUrl = draft.baseUrl;
+                            friendlyItem.weight = draft.weight;
+                            friendlyItem.authType = draft.authType;
+                            friendlyItem.authValue = entry.authValue;
+                            friendlyItem.active = entry.active;
+                            friendlyItem.__mergedId = entry.siteId;
+                        }
+                    } else {
+                        const newSiteId = generateEntryId();
+                        entry.siteId = newSiteId;
+                        entry.lastSyncedName = entry.name;
+                            friendlyConfigs[service].push({
+                                name: entry.name,
+                                baseUrl: draft.baseUrl,
+                                weight: draft.weight,
+                                authType: draft.authType,
+                                authValue: entry.authValue,
+                                active: entry.active,
+                                __mergedId: newSiteId
+                            });
+                        }
+                });
+
+                sortFriendlyList(service);
+                sortMergedGroups(service);
+
+                if (activeEntry) {
+                    enforceSingleActive(service, activeEntry.siteId);
+                } else {
+                    draft.entries.forEach(entry => {
+                        if (entry.siteId) {
+                            const friendlyItem = findFriendlyBySiteId(service, entry.siteId);
+                            if (friendlyItem) {
+                                friendlyItem.active = entry.active;
+                            }
+                        }
+                    });
+                    syncFormToJson(service);
+                }
+            }
+
+            configSaving.value = true;
+            try {
+                await saveConfigForService(service);
+                buildMergedFromFriendly(service);
+                ElMessage.success(mode === 'edit' ? '站点分组更新成功' : '站点分组添加成功');
+                mergedDialogVisible.value = false;
+                mergedDialogMode.value = 'add';
+                mergedDialogEditIndex.value = -1;
+            } catch (error) {
+                ElMessage.error('保存失败: ' + error.message);
+            } finally {
+                configSaving.value = false;
+            }
+        };
+
+        // ========== 合并模式相关函数结束 ==========
 
         const saveConfigForService = async (service) => {
             const content = configContents[service];
@@ -1793,6 +2658,10 @@ const app = createApp({
             // 延迟执行，避免在同步过程中产生循环调用
             nextTick(() => {
                 syncJsonToForm('claude');
+                // JSON变化后更新合并视图
+                if (configEditMode.value === 'merged') {
+                    buildMergedFromFriendly('claude');
+                }
             });
         });
 
@@ -1801,7 +2670,26 @@ const app = createApp({
             // 延迟执行，避免在同步过程中产生循环调用
             nextTick(() => {
                 syncJsonToForm('codex');
+                // JSON变化后更新合并视图
+                if (configEditMode.value === 'merged') {
+                    buildMergedFromFriendly('codex');
+                }
             });
+        });
+
+        // 监听配置编辑模式变化
+        watch(() => configEditMode.value, (newMode, oldMode) => {
+            if (newMode === 'merged') {
+                // 进入合并模式：从 friendlyConfigs 构建
+                buildMergedFromFriendly(activeConfigTab.value);
+            }
+        });
+
+        // 监听活动配置Tab变化（在合并模式下）
+        watch(() => activeConfigTab.value, (newTab) => {
+            if (configEditMode.value === 'merged') {
+                buildMergedFromFriendly(newTab);
+            }
         });
 
         // 实时请求相关方法
@@ -2049,6 +2937,12 @@ const app = createApp({
             configEditMode,
             editingNewSite,
             newSiteData,
+            // 合并模式相关
+            mergedConfigs,
+            mergedDialogVisible,
+            mergedDialogService,
+            mergedDialogDraft,
+            mergedDialogMode,
             modelSelectorVisible,
             testResultVisible,
             testingConnection,
@@ -2103,6 +2997,28 @@ const app = createApp({
             handleActiveChange,
             syncFormToJson,
             syncJsonToForm,
+            // 合并模式相关方法
+            isValidUrl,
+            buildMergedFromFriendly,
+            rebuildFriendlyFromMerged,
+            applyMergedGroupUpdate,
+            autoGenerateName,
+            enforceSingleActive,
+            toggleMergedActive,
+            updateMergedEntryAuth,
+            applyMergedEntryNameUpdate,
+            addMergedEntry,
+            removeMergedEntry,
+            deleteMergedGroup,
+            switchToMergedMode,
+            saveMergedConfig,
+            openMergedDialog,
+            editMergedGroup,
+            isMergedGroupActive,
+            addDialogEntry,
+            removeDialogEntry,
+            cancelMergedDialog,
+            submitMergedDialog,
             getModelOptions,
             testNewSiteConnection,
             testSiteConnection,

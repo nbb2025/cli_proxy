@@ -280,10 +280,16 @@
                         <!-- 模式切换区域 -->
                         <div class="config-mode-tabs">
                             <el-button
+                                :type="configEditMode === 'merged' ? 'primary' : ''"
+                                @click="switchToMergedMode"
+                                size="small">
+                                合并模式
+                            </el-button>
+                            <el-button
                                 :type="configEditMode === 'interactive' ? 'primary' : ''"
                                 @click="configEditMode = 'interactive'"
                                 size="small">
-                                交互模式
+                                <i class="el-icon-data-analysis mode-icon"></i>交互模式
                             </el-button>
                             <el-button
                                 :type="configEditMode === 'json' ? 'primary' : ''"
@@ -291,6 +297,102 @@
                                 size="small">
                                 JSON模式
                             </el-button>
+                        </div>
+
+                        <!-- 合并模式内容区 -->
+                        <div v-show="configEditMode === 'merged'" class="merged-mode-container">
+                            <div class="config-form-header">
+                                <label>站点配置管理:</label>
+                                <div class="config-actions">
+                                    <el-button
+                                        type="success"
+                                        size="small"
+                                        @click="openMergedDialog('claude')">
+                                        添加站点
+                                    </el-button>
+                                    <el-button
+                                        type="primary"
+                                        size="small"
+                                        :loading="configSaving"
+                                        @click="saveMergedConfig('claude')">
+                                        保存配置
+                                    </el-button>
+                                </div>
+                            </div>
+
+                            <!-- 分组列表 -->
+                            <div class="merged-groups-container">
+                                <div
+                                    v-for="(group, groupIndex) in mergedConfigs.claude"
+                                    :key="group.baseUrl"
+                                    :class="['merged-group-card', { 'merged-group-active': isMergedGroupActive(group) }]">
+
+                                    <!-- 分组头部 -->
+                                    <div class="merged-group-header">
+                                        <div class="group-field">
+                                            <label>目标地址:</label>
+                                            <el-input
+                                                v-model="group.baseUrl"
+                                                placeholder="https://api.example.com"
+                                                @blur="applyMergedGroupUpdate('claude', groupIndex)"
+                                                style="width: 350px;">
+                                            </el-input>
+                                        </div>
+
+                                        <div class="group-field">
+                                            <label>权重:</label>
+                                            <el-input-number
+                                                v-model="group.weight"
+                                                :min="0"
+                                                :step="1"
+                                                @change="applyMergedGroupUpdate('claude', groupIndex)"
+                                                style="width: 120px;">
+                                            </el-input-number>
+                                        </div>
+
+                                        <div class="group-field">
+                                            <label>认证方式:</label>
+                                            <el-radio-group
+                                                v-model="group.authType"
+                                                @change="applyMergedGroupUpdate('claude', groupIndex)"
+                                                size="small">
+                                                <el-radio-button label="auth_token">Auth Token</el-radio-button>
+                                                <el-radio-button label="api_key">API Key</el-radio-button>
+                                            </el-radio-group>
+                                        </div>
+                                    </div>
+
+                                    <!-- 秘钥统计 -->
+                                    <div class="merged-group-summary">
+                                        <el-divider>
+                                            秘钥列表 · 共 {{ group.entries.length }} 条
+                                        </el-divider>
+                                    </div>
+
+                                    <!-- 分组底部操作 -->
+                                    <div class="merged-group-footer">
+                                        <el-button
+                                            type="primary"
+                                            size="small"
+                                            plain
+                                            @click="editMergedGroup('claude', groupIndex)">
+                                            编辑
+                                        </el-button>
+                                        <el-button
+                                            type="danger"
+                                            size="small"
+                                            plain
+                                            @click="deleteMergedGroup('claude', groupIndex)">
+                                            删除站点组
+                                        </el-button>
+                                    </div>
+                                </div>
+
+                                <!-- 空状态 -->
+                                <div v-if="mergedConfigs.claude.length === 0" class="merged-empty-state">
+                                    <el-empty description="暂无按目标地址聚合配置，可点击右上角添加站点"></el-empty>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- 交互模式内容区 -->
@@ -450,6 +552,18 @@
 
                         <!-- JSON模式内容区 -->
                         <div v-show="configEditMode === 'json'" class="json-mode-container">
+                            <div class="config-form-header">
+                                <label>站点配置管理:</label>
+                                <div class="config-actions">
+                                    <el-button
+                                        type="primary"
+                                        @click="saveConfig"
+                                        :loading="configSaving"
+                                        size="small">
+                                        保存配置
+                                    </el-button>
+                                </div>
+                            </div>
                             <label>claude.json 配置内容:</label>
                             <el-input
                                 v-model="configContents.claude"
@@ -469,15 +583,6 @@
   }
 }</code>
                             </div>
-                            <div class="editor-actions">
-                                <el-button
-                                    type="primary"
-                                    @click="saveConfig"
-                                    :loading="configSaving"
-                                    size="small">
-                                    保存配置
-                                </el-button>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -487,10 +592,16 @@
                         <!-- 模式切换区域 -->
                         <div class="config-mode-tabs">
                             <el-button
+                                :type="configEditMode === 'merged' ? 'primary' : ''"
+                                @click="switchToMergedMode"
+                                size="small">
+                                合并模式
+                            </el-button>
+                            <el-button
                                 :type="configEditMode === 'interactive' ? 'primary' : ''"
                                 @click="configEditMode = 'interactive'"
                                 size="small">
-                                交互模式
+                                <i class="el-icon-data-analysis mode-icon"></i>交互模式
                             </el-button>
                             <el-button
                                 :type="configEditMode === 'json' ? 'primary' : ''"
@@ -498,6 +609,102 @@
                                 size="small">
                                 JSON模式
                             </el-button>
+                        </div>
+
+                        <!-- 合并模式内容区 -->
+                        <div v-show="configEditMode === 'merged'" class="merged-mode-container">
+                            <div class="config-form-header">
+                                <label>站点配置管理:</label>
+                                <div class="config-actions">
+                                    <el-button
+                                        type="success"
+                                        size="small"
+                                        @click="openMergedDialog('codex')">
+                                        添加站点
+                                    </el-button>
+                                    <el-button
+                                        type="primary"
+                                        size="small"
+                                        :loading="configSaving"
+                                        @click="saveMergedConfig('codex')">
+                                        保存配置
+                                    </el-button>
+                                </div>
+                            </div>
+
+                            <!-- 分组列表 -->
+                            <div class="merged-groups-container">
+                                <div
+                                    v-for="(group, groupIndex) in mergedConfigs.codex"
+                                    :key="group.baseUrl"
+                                    :class="['merged-group-card', { 'merged-group-active': isMergedGroupActive(group) }]">
+
+                                    <!-- 分组头部 -->
+                                    <div class="merged-group-header">
+                                        <div class="group-field">
+                                            <label>目标地址:</label>
+                                            <el-input
+                                                v-model="group.baseUrl"
+                                                placeholder="https://api.example.com"
+                                                @blur="applyMergedGroupUpdate('codex', groupIndex)"
+                                                style="width: 350px;">
+                                            </el-input>
+                                        </div>
+
+                                        <div class="group-field">
+                                            <label>权重:</label>
+                                            <el-input-number
+                                                v-model="group.weight"
+                                                :min="0"
+                                                :step="1"
+                                                @change="applyMergedGroupUpdate('codex', groupIndex)"
+                                                style="width: 120px;">
+                                            </el-input-number>
+                                        </div>
+
+                                        <div class="group-field">
+                                            <label>认证方式:</label>
+                                            <el-radio-group
+                                                v-model="group.authType"
+                                                @change="applyMergedGroupUpdate('codex', groupIndex)"
+                                                size="small">
+                                                <el-radio-button label="auth_token">Auth Token</el-radio-button>
+                                                <el-radio-button label="api_key">API Key</el-radio-button>
+                                            </el-radio-group>
+                                        </div>
+                                    </div>
+
+                                    <!-- 秘钥统计 -->
+                                    <div class="merged-group-summary">
+                                        <el-divider>
+                                            秘钥列表 · 共 {{ group.entries.length }} 条
+                                        </el-divider>
+                                    </div>
+
+                                    <!-- 分组底部操作 -->
+                                    <div class="merged-group-footer">
+                                        <el-button
+                                            type="primary"
+                                            size="small"
+                                            plain
+                                            @click="editMergedGroup('codex', groupIndex)">
+                                            编辑
+                                        </el-button>
+                                        <el-button
+                                            type="danger"
+                                            size="small"
+                                            plain
+                                            @click="deleteMergedGroup('codex', groupIndex)">
+                                            删除站点组
+                                        </el-button>
+                                    </div>
+                                </div>
+
+                                <!-- 空状态 -->
+                                <div v-if="mergedConfigs.codex.length === 0" class="merged-empty-state">
+                                    <el-empty description="暂无按目标地址聚合配置，可点击右上角添加站点"></el-empty>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- 交互模式内容区 -->
@@ -657,6 +864,18 @@
 
                         <!-- JSON模式内容区 -->
                         <div v-show="configEditMode === 'json'" class="json-mode-container">
+                            <div class="config-form-header">
+                                <label>站点配置管理:</label>
+                                <div class="config-actions">
+                                    <el-button
+                                        type="primary"
+                                        @click="saveConfig"
+                                        :loading="configSaving"
+                                        size="small">
+                                        保存配置
+                                    </el-button>
+                                </div>
+                            </div>
                             <label>codex.json 配置内容:</label>
                             <el-input
                                 v-model="configContents.codex"
@@ -675,15 +894,6 @@
     "active": false
   }
 }</code>
-                            </div>
-                            <div class="editor-actions">
-                                <el-button
-                                    type="primary"
-                                    @click="saveConfig"
-                                    :loading="configSaving"
-                                    size="small">
-                                    保存配置
-                                </el-button>
                             </div>
                         </div>
                     </div>
@@ -1068,7 +1278,7 @@
                 <div class="history-requests-section">
                     <h3>历史所有请求</h3>
                     <div class="all-logs-stats">
-                        <span>共 {{ allLogs.length }} 条日志，仅保留最近:
+                        <span>  共 {{ allLogs.length }} 条日志，仅保留最近:
                             <el-select
                                 v-model="systemConfig.logLimit"
                                 @change="handleLogLimitChange"
@@ -1665,6 +1875,83 @@
                 </div>
             </div>
         </el-drawer>
+
+        <!-- 添加站点分组弹窗 -->
+        <el-dialog
+            v-model="mergedDialogVisible"
+            :title="mergedDialogMode === 'edit' ? '编辑站点分组' : '添加站点分组'"
+            width="700px"
+            @close="cancelMergedDialog">
+
+            <el-form :model="mergedDialogDraft" label-width="100px">
+                <el-form-item label="目标地址:" required>
+                    <el-input
+                        v-model="mergedDialogDraft.baseUrl"
+                        placeholder="https://api.example.com">
+                    </el-input>
+                </el-form-item>
+
+                <el-form-item label="权重:">
+                    <el-input-number
+                        v-model="mergedDialogDraft.weight"
+                        :min="0"
+                        :step="1">
+                    </el-input-number>
+                </el-form-item>
+
+                <el-form-item label="认证方式:">
+                    <el-radio-group v-model="mergedDialogDraft.authType">
+                        <el-radio-button label="auth_token">Auth Token</el-radio-button>
+                        <el-radio-button label="api_key">API Key</el-radio-button>
+                    </el-radio-group>
+                </el-form-item>
+
+                <div class="dialog-entries-container">
+                    <div
+                        v-for="(entry, index) in mergedDialogDraft.entries"
+                        :key="index"
+                        class="dialog-entry-row">
+                        <el-input
+                            v-model="entry.name"
+                            placeholder="站点名称"
+                            style="width: 180px;">
+                        </el-input>
+                        <el-input
+                            v-model="entry.authValue"
+                            placeholder="秘钥"
+                            type="password"
+                            show-password
+                            style="width: 280px;">
+                        </el-input>
+                        <el-switch v-model="entry.active"></el-switch>
+                        <el-button
+                            type="danger"
+                            size="small"
+                            @click="removeDialogEntry(index)">
+                            删除
+                        </el-button>
+                    </div>
+
+                    <el-button
+                        type="success"
+                        size="small"
+                        @click="addDialogEntry"
+                        style="margin-top: 8px;">
+                        <i class="el-icon-plus"></i> 添加秘钥
+                    </el-button>
+                </div>
+            </el-form>
+
+            <template #footer>
+                <el-button @click="cancelMergedDialog">取消</el-button>
+                <el-button
+                    type="primary"
+                    @click="submitMergedDialog"
+                    :loading="configSaving">
+                    {{ mergedDialogMode === 'edit' ? '保存配置' : '确认添加' }}
+                </el-button>
+            </template>
+        </el-dialog>
     </div>
 
     <!-- Vue 3 -->

@@ -1179,6 +1179,10 @@ header h1 {
     border-bottom: 1px solid #e9ecef;
 }
 
+.config-mode-tabs .mode-icon {
+    margin-right: 4px;
+}
+
 /* 交互模式容器 */
 .interactive-mode-container {
     display: flex;
@@ -2041,5 +2045,217 @@ header h1 {
     .mapping-actions-compact {
         align-self: stretch;
         margin-bottom: 0;
+    }
+}
+
+/* ==================== 合并模式样式 ==================== */
+
+/* 模式切换按钮统一宽度 */
+.config-mode-tabs .el-button {
+    min-width: 100px;
+}
+
+/* 合并模式容器 */
+.merged-mode-container {
+
+}
+
+/* 分组卡片 */
+.merged-group-card {
+    border: 1px solid #dcdfe6;
+    border-radius: 6px;
+    padding: 20px;
+    margin-bottom: 20px;
+    background: #fff;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    transition: box-shadow 0.3s;
+    max-width: 100%;
+    overflow: visible;
+    position: relative;
+}
+
+.merged-group-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.merged-group-active {
+    border-color: #67c23a;
+    background: #f0f9ff;
+}
+
+.merged-group-active::before {
+    content: "已激活";
+    position: absolute;
+    top: -12px;
+    right: 16px;
+    background: #67c23a;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    z-index: 10;
+}
+
+/* 分组头部 */
+.merged-group-header {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.merged-group-header .group-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.merged-group-header .group-field label {
+    font-weight: 500;
+    color: #606266;
+    white-space: nowrap;
+}
+
+.merged-group-summary {
+    margin: 12px 0;
+}
+
+.merged-group-summary .el-divider__text {
+    color: #909399;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+}
+
+/* 分组主体 */
+.merged-group-body {
+    background: #f5f7fa;
+    border-radius: 6px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* 秘钥行 */
+.merged-entry-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: #fff;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    transition: box-shadow 0.2s ease;
+    flex-wrap: wrap;
+}
+
+.merged-entry-row:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.merged-entry-row .merged-entry-name {
+    flex: 0 0 200px;
+}
+
+.merged-entry-row .merged-entry-secret {
+    flex: 1 1 280px;
+    min-width: 220px;
+}
+
+.merged-entry-row .merged-entry-secret .el-input__wrapper {
+    width: 100%;
+}
+
+.merged-entry-row .merged-entry-active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 80px;
+}
+
+.merged-entry-row .merged-entry-actions {
+    display: flex;
+    justify-content: flex-end;
+    flex: 0 0 100px;
+}
+
+/* 添加秘钥行 */
+.add-entry-row {
+    padding: 8px 12px;
+    text-align: left;
+}
+
+/* 分组底部 */
+.merged-group-footer {
+    margin-top: 12px;
+    text-align: right;
+}
+
+/* 分组容器 */
+.merged-groups-container {
+    max-height: 600px;
+    overflow-y: auto;
+    padding-top: 16px;
+}
+
+/* 空状态 */
+.merged-empty-state {
+    padding: 60px 20px;
+    text-align: center;
+}
+
+/* 弹窗中的秘钥列表 */
+.dialog-entries-container {
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 12px;
+    background: #f5f7fa;
+    border-radius: 4px;
+}
+
+.dialog-entry-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .merged-group-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .merged-group-header .group-field {
+        width: 100%;
+    }
+
+    .merged-group-header .group-field label {
+        min-width: 80px;
+    }
+
+    .merged-entry-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .merged-entry-row > * {
+        width: 100% !important;
+        margin-bottom: 8px;
+    }
+
+    .merged-entry-row .merged-entry-actions {
+        justify-content: flex-start;
+    }
+
+    .dialog-entry-row {
+        flex-wrap: wrap;
+    }
+
+    .dialog-entry-row > * {
+        flex: 1 1 100%;
+        margin-bottom: 8px;
     }
 }
