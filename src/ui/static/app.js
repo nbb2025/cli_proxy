@@ -153,6 +153,10 @@ const app = createApp({
         const decodedRequestBody = ref(''); // 解码后的请求体（转换后）
         const decodedOriginalRequestBody = ref(''); // 解码后的原始请求体
         const decodedResponseContent = ref(''); // 解码后的响应内容
+        const responseOriginalContent = ref(''); // 原始响应内容
+        const parsedResponseContent = ref(''); // 解析后的简要响应内容
+        const isResponseContentParsed = ref(true); // 是否显示解析视图
+        const isCodexLog = ref(false); // 当前日志是否来自codex
 
         // 实时请求相关数据
         const realtimeRequests = ref([]);
@@ -2484,6 +2488,240 @@ const app = createApp({
             }
         };
 
+        const parseResponseLogContent = (rawText) => {
+            const sanitize = (text) => {
+                if (!text) {
+                    return '';
+                }
+                const normalized = String(text)
+                    .replace(/\r\n/g, '\n')
+                    .replace(/\r/g, '\n');
+                return normalized
+                    .split('\n')
+                    .map(line => line.trimEnd())
+                    .join('\n')
+                    .trim();
+            };
+
+            const summarize = (value) => sanitize(value);
+
+            const formatReasoningSummary = (value) => {
+                if (!value || typeof value !== 'string') {
+                    return '';
+                }
+                const cleaned = value.replace(/\*\*/g, '').trim();
+                if (!cleaned) {
+                    return '';
+                }
+                const parts = cleaned.split(/\n{2,}/);
+                if (parts.length > 1) {
+                    const rest = parts.slice(1).join('\n\n');
+                    return `${sanitize(parts[0])}\n${sanitize(rest)}`.trim();
+                }
+                return sanitize(cleaned);
+            };
+
+            if (!rawText || !rawText.trim()) {
+                return {
+                    success: true,
+                    partial: false,
+                    text: '思考消息：无\n响应消息：无\n工具调用：无',
+                    errors: []
+                };
+            }
+
+            try {
+                const rawLines = rawText.split(/\r?\n/);
+                const events = [];
+                let currentEventName = null;
+                let dataLines = [];
+
+                const pushEvent = () => {
+                    if (currentEventName && dataLines.length > 0) {
+                        events.push({
+                            event: currentEventName,
+                            data: dataLines.join('\n')
+                        });
+                    }
+                    dataLines = [];
+                };
+
+                for (const line of rawLines) {
+                    if (line.startsWith('event:')) {
+                        pushEvent();
+                        currentEventName = line.slice(6).trim();
+                    } else if (line.startsWith('data:')) {
+                        dataLines.push(line.slice(5).trimStart());
+                    } else if (line.trim() === '') {
+                        pushEvent();
+                        currentEventName = null;
+                    } else if (dataLines.length > 0) {
+                        dataLines.push(line);
+                    }
+                }
+                pushEvent();
+
+                const entries = [];
+                const errors = [];
+
+                for (const evt of events) {
+                    if (evt.event !== 'response.output_item.done' || !evt.data) {
+                        continue;
+                    }
+
+                    let payload;
+                    try {
+                        payload = JSON.parse(evt.data);
+                    } catch (error) {
+                        errors.push(`JSON解析失败: ${error.message}`);
+                        continue;
+                    }
+
+                    const item = payload?.item;
+                    if (!item) {
+                        continue;
+                    }
+
+                    if (item.type === 'reasoning') {
+                        let added = false;
+                        if (Array.isArray(item.summary)) {
+                            for (const summaryItem of item.summary) {
+                                if (summaryItem && typeof summaryItem.text === 'string') {
+                                    const formatted = formatReasoningSummary(summaryItem.text);
+                                    if (formatted) {
+                                        entries.push({ kind: 'reasoning', text: formatted });
+                                        added = true;
+                                    }
+                                }
+                            }
+                        }
+                        if (!added) {
+                            if (item.encrypted_content) {
+                                entries.push({ kind: 'reasoning', text: '内容已加密，无法解析' });
+                            } else {
+                                entries.push({ kind: 'reasoning', text: '未提供摘要内容' });
+                            }
+                        }
+                    } else if (item.type === 'message') {
+                        const parts = [];
+                        if (Array.isArray(item.content)) {
+                            for (const fragment of item.content) {
+                                if (fragment && typeof fragment.text === 'string') {
+                                    parts.push(fragment.text);
+                                } else if (fragment?.delta && typeof fragment.delta.text === 'string') {
+                                    parts.push(fragment.delta.text);
+                                }
+                            }
+                        }
+                        const combined = sanitize(parts.join(' '));
+                        if (combined) {
+                            entries.push({ kind: 'message', text: combined });
+                        }
+                    } else if (item.type === 'function_call') {
+                        let description = item.name || 'function_call';
+                        let argsObject = null;
+
+                        if (typeof item.arguments === 'string') {
+                            try {
+                                argsObject = JSON.parse(item.arguments);
+                            } catch (error) {
+                                // 留作原始字符串展示
+                            }
+                        } else if (item.arguments && typeof item.arguments === 'object') {
+                            argsObject = item.arguments;
+                        }
+
+                        const segments = [];
+                        if (argsObject) {
+                            if (Array.isArray(argsObject.command)) {
+                                segments.push(`command=${summarize(argsObject.command.join(' '))}`);
+                            } else if (argsObject.command) {
+                                segments.push(`command=${summarize(argsObject.command)}`);
+                            }
+                            if (argsObject.workdir) {
+                                segments.push(`workdir=${summarize(argsObject.workdir)}`);
+                            }
+                            if (argsObject.with_escalated_permissions !== undefined) {
+                                segments.push(`escalated=${argsObject.with_escalated_permissions}`);
+                            }
+                            if (argsObject.timeout_ms !== undefined) {
+                                segments.push(`timeout=${argsObject.timeout_ms}`);
+                            }
+                            if (argsObject.justification) {
+                                segments.push(`justification=${summarize(argsObject.justification)}`);
+                            }
+
+                            const knownKeys = new Set(['command', 'workdir', 'with_escalated_permissions', 'timeout_ms', 'justification']);
+                            for (const key of Object.keys(argsObject)) {
+                                if (knownKeys.has(key)) continue;
+                                const value = argsObject[key];
+                                segments.push(`${key}=${typeof value === 'string' ? summarize(value) : summarize(JSON.stringify(value))}`);
+                            }
+                        } else if (item.arguments) {
+                            segments.push(summarize(typeof item.arguments === 'string'
+                                ? item.arguments
+                                : JSON.stringify(item.arguments)));
+                        }
+
+                        if (segments.length > 0) {
+                            description += ` | ${segments.join(' | ')}`;
+                        }
+                        entries.push({ kind: 'tool', text: description });
+                    }
+                }
+
+                if (entries.length === 0) {
+                    return {
+                        success: true,
+                        partial: errors.length > 0,
+                        text: '思考消息：无\n响应消息：无\n工具调用：无',
+                        errors
+                    };
+                }
+
+                const labelMap = {
+                    reasoning: '思考消息',
+                    message: '响应消息',
+                    tool: '工具调用'
+                };
+
+                const totals = entries.reduce((acc, entry) => {
+                    acc[entry.kind] = (acc[entry.kind] || 0) + 1;
+                    return acc;
+                }, {});
+
+                const seen = {};
+                const outputLines = entries.map(entry => {
+                    seen[entry.kind] = (seen[entry.kind] || 0) + 1;
+                    const suffix = totals[entry.kind] > 1 ? `(${seen[entry.kind]})` : '';
+                    if (entry.text.includes('\n')) {
+                        return `${labelMap[entry.kind]}${suffix}：\n${entry.text}`;
+                    }
+                    return `${labelMap[entry.kind]}${suffix}：${entry.text}`;
+                });
+
+                ['reasoning', 'message', 'tool'].forEach(kind => {
+                    if (!totals[kind]) {
+                        outputLines.push(`${labelMap[kind]}：无`);
+                    }
+                });
+
+                return {
+                    success: true,
+                    partial: errors.length > 0,
+                    text: outputLines.join('\n'),
+                    errors
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    partial: false,
+                    text: `解析失败：${error.message}`,
+                    errors: [error.message]
+                };
+            }
+        };
+
         const showLogDetail = (log) => {
             selectedLog.value = log;
             activeLogTab.value = 'basic'; // 重置到基本信息tab
@@ -2491,7 +2729,58 @@ const app = createApp({
 
             decodedRequestBody.value = decodeBodyContent(log.filtered_body);
             decodedOriginalRequestBody.value = decodeBodyContent(log.original_body);
-            decodedResponseContent.value = decodeBodyContent(log.response_content);
+            responseOriginalContent.value = decodeBodyContent(log.response_content);
+            isCodexLog.value = (log?.service || '').toLowerCase() === 'codex';
+
+            if (isCodexLog.value && responseOriginalContent.value) {
+                const parsedResult = parseResponseLogContent(responseOriginalContent.value);
+                if (parsedResult.success) {
+                    parsedResponseContent.value = parsedResult.text;
+                    decodedResponseContent.value = parsedResponseContent.value;
+                    isResponseContentParsed.value = true;
+                    if (parsedResult.partial) {
+                        ElMessage.warning('部分响应解析失败，已展示可用内容');
+                        console.warn('响应解析部分失败:', parsedResult.errors);
+                    }
+                } else {
+                    parsedResponseContent.value = '';
+                    decodedResponseContent.value = responseOriginalContent.value;
+                    isResponseContentParsed.value = false;
+                    ElMessage.warning(parsedResult.text || '响应解析失败');
+                }
+            } else {
+                parsedResponseContent.value = '';
+                decodedResponseContent.value = responseOriginalContent.value || '';
+                isResponseContentParsed.value = false;
+            }
+        };
+
+        const toggleParsedResponse = () => {
+            if (!isCodexLog.value || !responseOriginalContent.value) {
+                return;
+            }
+
+            if (isResponseContentParsed.value) {
+                isResponseContentParsed.value = false;
+                decodedResponseContent.value = responseOriginalContent.value;
+            } else {
+                if (!parsedResponseContent.value) {
+                    const parsedResult = parseResponseLogContent(responseOriginalContent.value);
+                    if (parsedResult.success) {
+                        parsedResponseContent.value = parsedResult.text;
+                        if (parsedResult.partial) {
+                            ElMessage.warning('部分响应解析失败，已展示可用内容');
+                            console.warn('响应解析部分失败:', parsedResult.errors);
+                        }
+                    } else {
+                        ElMessage.warning(parsedResult.text || '响应解析失败');
+                        return;
+                    }
+                }
+
+                isResponseContentParsed.value = true;
+                decodedResponseContent.value = parsedResponseContent.value || '思考消息：无\n响应消息：无\n工具调用：无';
+            }
         };
         
         // 加载所有日志
@@ -2977,6 +3266,10 @@ const app = createApp({
             formatFilteredRequestBody,
             formatOriginalRequestBody,
             formatResponseContent,
+            responseOriginalContent,
+            isResponseContentParsed,
+            toggleParsedResponse,
+            isCodexLog,
             decodedResponseContent,
             formatUsageValue,
             formatUsageSummary,

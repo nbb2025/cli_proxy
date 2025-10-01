@@ -1180,9 +1180,12 @@
                                                 复制内容
                                             </el-button>
                                             <el-button
+                                                v-if="isCodexLog"
                                                 size="small"
-                                                type="primary">
-                                                解析响应
+                                                :type="isResponseContentParsed ? 'default' : 'primary'"
+                                                :disabled="!responseOriginalContent"
+                                                @click="toggleParsedResponse">
+                                                {{ isResponseContentParsed ? '还原响应' : '解析响应' }}
                                             </el-button>
                                         </div>
                                         <el-input
