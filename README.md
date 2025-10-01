@@ -124,7 +124,7 @@ clp active claude prod
 clp active codex dev
 ```
 
-### claude 使用方法
+### claude code 使用方法
 1. 修改 `~/.claude/settings.json` Claude配置文件，连接本地CLI代理服务
 ```json
 {
@@ -167,6 +167,25 @@ wire_api = "responses"
 }
 ```
 3. 重启codex即可（确保本地代理已启动 clp start）
+
+### vscode 中的 claude code 使用方法
+1. 创建 `~/.claude/config.json` Claude配置文件（没有就创建一个）
+```json
+{
+  "primaryApiKey": "-" 
+}
+```
+2. 打开vscode->扩展->找到claude code扩展->右下角小齿轮->settings->Edit in settings.json 在 `settings.json` 中的 claude-code.environmentVariables 数组中填入以下配置，连接本地CLI代理服务
+```json
+{
+  "claude-code.environmentVariables": [
+    {"name": "ANTHROPIC_BASE_URL", "value": "http://127.0.0.1:3210"},
+    {"name": "ANTHROPIC_AUTH_TOKEN", "value": "-"}
+  ]
+}
+3. 重新打开对话框即可
+```
+
 
 ## 开发指南
 
