@@ -210,6 +210,11 @@ const app = createApp({
         const resettingFailures = reactive({ claude: false, codex: false });
         const isLoadbalanceWeightMode = computed(() => loadbalanceConfig.mode === 'weight-based');
         const loadbalanceDisabledNotice = computed(() => isLoadbalanceWeightMode.value ? '负载均衡生效中' : '');
+        const PINNED_WEIGHT_START = 1000;
+        const pinningState = reactive({
+            claude: { loading: false, target: '' },
+            codex: { loading: false, target: '' }
+        });
 
         // 响应式布局控制
         const defaultViewport = {
@@ -1042,6 +1047,97 @@ const app = createApp({
                 ElMessage.error('重置失败计数失败: ' + error.message);
             } finally {
                 resettingFailures[service] = false;
+            }
+        };
+
+        const pinWeightedTarget = async (service, configName) => {
+            if (!service || !configName || !pinningState[service]) {
+                return;
+            }
+
+            if (pinningState[service].loading) {
+                return;
+            }
+
+            pinningState[service].loading = true;
+            pinningState[service].target = configName;
+
+            try {
+                let rawContent = configContents[service];
+                if (!rawContent || !rawContent.trim()) {
+                    const response = await fetchWithErrorHandling(`/api/config/${service}`);
+                    rawContent = response?.content ?? '{}';
+                }
+
+                let parsedConfig = {};
+                try {
+                    parsedConfig = rawContent && rawContent.trim() ? JSON.parse(rawContent) : {};
+                } catch (error) {
+                    throw new Error('当前配置文件格式无效');
+                }
+
+                if (!parsedConfig[configName]) {
+                    throw new Error('未找到指定配置项');
+                }
+
+                const currentOrder = weightedTargets.value[service]?.map(item => item.name) || [];
+                const existingNames = Object.keys(parsedConfig);
+
+                const orderedNames = [];
+                const seen = new Set();
+
+                if (!seen.has(configName)) {
+                    orderedNames.push(configName);
+                    seen.add(configName);
+                }
+
+                currentOrder.forEach(name => {
+                    if (!seen.has(name) && parsedConfig[name]) {
+                        orderedNames.push(name);
+                        seen.add(name);
+                    }
+                });
+
+                existingNames.forEach(name => {
+                    if (!seen.has(name)) {
+                        orderedNames.push(name);
+                        seen.add(name);
+                    }
+                });
+
+                if (orderedNames.length === 0) {
+                    throw new Error('没有可更新的配置项');
+                }
+
+                const updatedConfig = {};
+                orderedNames.forEach((name, index) => {
+                    const entry = { ...parsedConfig[name] };
+                    entry.weight = Math.max(1, PINNED_WEIGHT_START - index);
+                    updatedConfig[name] = entry;
+                });
+
+                const newContent = JSON.stringify(updatedConfig, null, 2);
+                const saveResult = await fetchWithErrorHandling(`/api/config/${service}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ content: newContent })
+                });
+
+                if (!saveResult?.success) {
+                    throw new Error(saveResult?.error || saveResult?.message || '配置保存失败');
+                }
+
+                configContents[service] = newContent;
+
+                await loadConfigOptions();
+                ElMessage.success(`${configName} 已顶置至首位`);
+            } catch (error) {
+                ElMessage.error(`顶置失败: ${error.message}`);
+            } finally {
+                pinningState[service].loading = false;
+                pinningState[service].target = '';
             }
         };
 
@@ -3620,8 +3716,10 @@ const app = createApp({
             isLoadbalanceWeightMode,
             weightedTargets,
             selectLoadbalanceMode,
+            pinWeightedTarget,
             resetLoadbalanceFailures,
-            resettingFailures
+            resettingFailures,
+            pinningState
         };
     }
 });

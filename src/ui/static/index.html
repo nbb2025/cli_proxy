@@ -241,6 +241,17 @@
                                         <div class="lb-meta">
                                             权重 {{ item.weight }} · 失败 {{ item.failures }} / {{ item.threshold }}
                                         </div>
+                                        <div class="lb-actions">
+                                            <el-button
+                                                type="primary"
+                                                size="small"
+                                                plain
+                                                @click.stop="pinWeightedTarget(service, item.name)"
+                                                :loading="pinningState[service].loading && pinningState[service].target === item.name"
+                                                :disabled="pinningState[service].loading && pinningState[service].target !== item.name">
+                                                顶置
+                                            </el-button>
+                                        </div>
                                     </div>
                                 </li>
                             </ul>

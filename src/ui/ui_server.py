@@ -854,12 +854,7 @@ def clear_usage():
             LOG_FILE.touch(exist_ok=True)
 
         # 2. 清空 history_usage.json 中的所有数值
-        history_usage = load_history_usage()
-        for service in history_usage:
-            for channel in history_usage[service]:
-                for key in history_usage[service][channel]:
-                    history_usage[service][channel][key] = 0
-        save_history_usage(history_usage)
+        save_history_usage({"claude": {}, "codex":{}})
 
         return jsonify({'success': True, 'message': 'Token使用记录已清空'})
     except Exception as e:

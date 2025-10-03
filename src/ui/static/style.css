@@ -1913,6 +1913,15 @@ header h1 {
     color: #606266;
 }
 
+.lb-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.lb-actions .el-button {
+    padding: 0 12px;
+}
+
 .loadbalance-hint {
     margin-top: 6px;
     font-size: 12px;
