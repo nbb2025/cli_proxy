@@ -80,7 +80,7 @@ src/
 
 ### 安装
 ```bash
-pip install --user --force-reinstall ./dist/clp-1.9.1-py3-none-any.whl
+pip install --user --force-reinstall ./dist/clp-1.9.2-py3-none-any.whl
 # 更新后需要重启服务新功能才生效（先杀掉clp占用的三个端口保险一点）
 # macOS / Linux
 lsof -ti:3210,3211,3300 | xargs kill -9
