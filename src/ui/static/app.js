@@ -1,5 +1,5 @@
 // Vue 3 + Element Plus CLI Proxy Monitor Application
-const { createApp, ref, reactive, computed, onMounted, nextTick, watch } = Vue;
+const { createApp, ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } = Vue;
 const { ElMessage, ElMessageBox } = ElementPlus;
 
 const app = createApp({
@@ -210,6 +210,50 @@ const app = createApp({
         const resettingFailures = reactive({ claude: false, codex: false });
         const isLoadbalanceWeightMode = computed(() => loadbalanceConfig.mode === 'weight-based');
         const loadbalanceDisabledNotice = computed(() => isLoadbalanceWeightMode.value ? '负载均衡生效中' : '');
+
+        // 响应式布局控制
+        const defaultViewport = {
+            width: typeof window !== 'undefined' ? window.innerWidth : 1440,
+            height: typeof window !== 'undefined' ? window.innerHeight : 900
+        };
+        const viewport = reactive({ ...defaultViewport });
+
+        const updateViewport = () => {
+            if (typeof window === 'undefined') {
+                return;
+            }
+            viewport.width = window.innerWidth;
+            viewport.height = window.innerHeight;
+        };
+
+        const getDrawerSize = (desktop, tablet = '82%', mobile = '100%') => {
+            const width = viewport.width;
+            if (width <= 640) {
+                return mobile;
+            }
+            if (width <= 1280) {
+                return tablet;
+            }
+            return desktop;
+        };
+
+        const drawerSizes = computed(() => ({
+            config: getDrawerSize('600px', '82%', '100%'),
+            filter: getDrawerSize('700px', '85%', '100%'),
+            logDetail: getDrawerSize('900px', '88%', '100%'),
+            allLogs: getDrawerSize('50%', '82%', '100%'),
+            usage: getDrawerSize('1000px', '88%', '100%'),
+            realtime: getDrawerSize('800px', '85%', '100%'),
+            modelMapping: getDrawerSize('60%', '82%', '100%'),
+            configMapping: getDrawerSize('60%', '82%', '100%')
+        }));
+
+        const dialogSizes = computed(() => ({
+            modelSelector: getDrawerSize('400px', '70%', '96%'),
+            mergedGroup: getDrawerSize('700px', '90%', '96%')
+        }));
+
+        const isMobileViewport = computed(() => viewport.width <= 640);
 
         // 系统配置
         const systemConfig = reactive({
@@ -3377,10 +3421,21 @@ const app = createApp({
 
         // 组件挂载
         onMounted(async () => {
+            updateViewport();
+            if (typeof window !== 'undefined') {
+                window.addEventListener('resize', updateViewport, { passive: true });
+            }
+
             await loadSystemConfig();
             loadData();
             // 初始化实时连接
             initRealTimeConnections();
+        });
+
+        onBeforeUnmount(() => {
+            if (typeof window !== 'undefined') {
+                window.removeEventListener('resize', updateViewport);
+            }
         });
         
         return {
@@ -3401,6 +3456,9 @@ const app = createApp({
             filterDrawerVisible,
             logDetailVisible,
             allLogsVisible,
+            drawerSizes,
+            dialogSizes,
+            isMobileViewport,
             activeConfigTab,
             activeLogTab,
             showTransformedData,

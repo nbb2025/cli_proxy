@@ -256,7 +256,7 @@
         <el-drawer 
             v-model="configDrawerVisible" 
             title="配置文件编辑" 
-            size="600px"
+            :size="drawerSizes.config"
             class="config-drawer">
             
             <div class="config-tabs">
@@ -905,7 +905,7 @@
         <el-drawer 
             v-model="filterDrawerVisible" 
             title="请求过滤器编辑" 
-            size="700px"
+            :size="drawerSizes.filter"
             class="filter-drawer">
             
             <div class="config-content">
@@ -981,7 +981,7 @@
         <el-drawer
             v-model="logDetailVisible"
             title="请求日志详情"
-            size="900px"
+            :size="drawerSizes.logDetail"
             class="log-detail-drawer">
             
             <div v-if="selectedLog" class="log-detail-content">
@@ -1207,7 +1207,7 @@
         <el-drawer 
             v-model="allLogsVisible" 
             title="请求详情" 
-            size="50%"
+            :size="drawerSizes.allLogs"
             class="all-logs-drawer">
             
             <div class="all-logs-content" v-loading="allLogsLoading">
@@ -1363,10 +1363,13 @@
         <el-dialog
             v-model="modelSelectorVisible"
             title="选择模型进行测试"
-            width="400px"
+            :width="dialogSizes.modelSelector"
             @close="cancelModelSelection">
             <div class="model-selector-content">
-                <el-form :model="testConfig" label-width="80px">
+                <el-form
+                    :model="testConfig"
+                    :label-width="isMobileViewport ? 'auto' : '80px'"
+                    :label-position="isMobileViewport ? 'top' : 'right'">
                     <el-form-item label="模型:">
                         <el-select
                             v-model="testConfig.model"
@@ -1469,7 +1472,7 @@
         <el-drawer
             v-model="usageDrawerVisible"
             title="Token 使用详情"
-            size="1000px"
+            :size="drawerSizes.usage"
             class="usage-drawer">
             <div class="usage-drawer-content" v-loading="usageDetailsLoading">
                 <div class="usage-summary-card">
@@ -1518,7 +1521,7 @@
         <el-drawer
             v-model="realtimeDetailVisible"
             title="实时请求详情"
-            size="800px"
+            :size="drawerSizes.realtime"
             direction="rtl"
             class="realtime-detail-drawer">
 
@@ -1583,8 +1586,9 @@
         <el-drawer
             v-model="modelMappingDrawerVisible"
             title="模型|配置→模型映射配置"
-            size="60%"
-            direction="rtl">
+            :size="drawerSizes.modelMapping"
+            direction="rtl"
+            class="mapping-drawer">
             <div class="mapping-drawer-content">
                 <div class="mapping-tabs">
                     <el-tabs type="border-card" v-model="activeModelMappingTab">
@@ -1757,8 +1761,9 @@
         <el-drawer 
             v-model="configMappingDrawerVisible" 
             title="模型→配置映射配置" 
-            size="60%" 
-            direction="rtl">
+            :size="drawerSizes.configMapping" 
+            direction="rtl"
+            class="mapping-drawer">
             <div class="mapping-drawer-content">
                 <div class="mapping-tabs">
                     <el-tabs type="border-card" v-model="activeConfigMappingTab">
@@ -1883,10 +1888,14 @@
         <el-dialog
             v-model="mergedDialogVisible"
             :title="mergedDialogMode === 'edit' ? '编辑站点分组' : '添加站点分组'"
-            width="700px"
+            :width="dialogSizes.mergedGroup"
+            :fullscreen="isMobileViewport"
             @close="cancelMergedDialog">
 
-            <el-form :model="mergedDialogDraft" label-width="100px">
+            <el-form
+                :model="mergedDialogDraft"
+                :label-width="isMobileViewport ? 'auto' : '100px'"
+                :label-position="isMobileViewport ? 'top' : 'right'">
                 <el-form-item label="目标地址:" required>
                     <el-input
                         v-model="mergedDialogDraft.baseUrl"
@@ -1917,14 +1926,14 @@
                         <el-input
                             v-model="entry.name"
                             placeholder="站点名称"
-                            style="width: 180px;">
+                            :style="isMobileViewport ? {} : { width: '180px' }">
                         </el-input>
                         <el-input
                             v-model="entry.authValue"
                             placeholder="秘钥"
                             type="password"
                             show-password
-                            style="width: 280px;">
+                            :style="isMobileViewport ? {} : { width: '280px' }">
                         </el-input>
                         <el-switch v-model="entry.active"></el-switch>
                         <el-button

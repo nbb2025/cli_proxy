@@ -16,6 +16,34 @@ body {
     line-height: 1.6;
 }
 
+:root {
+    --drawer-padding: clamp(16px, 2.5vw, 28px);
+    --drawer-bg: #f7f9fc;
+    --drawer-card-bg: #ffffff;
+    --drawer-transition: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.el-overlay {
+    background-color: rgba(15, 23, 42, 0.25);
+    backdrop-filter: blur(2px);
+    transition: background-color 0.32s var(--drawer-transition), backdrop-filter 0.32s var(--drawer-transition);
+}
+
+.el-drawer__body {
+    animation: drawer-body-fade 0.32s var(--drawer-transition) both;
+}
+
+@keyframes drawer-body-fade {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 .container {
     max-width: 1200px;
     margin: 0 auto;
@@ -338,13 +366,15 @@ header h1 {
     background: #f5f7fa;
     border-radius: 6px;
     margin: 10px 0;
-    max-height: 400px;
+    max-height: min(60vh, 420px);
+    min-height: 0;
     overflow-y: auto;
 }
 
 .filter-drawer .filter-rule-row {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     margin-bottom: 10px;
     gap: 10px;
 }
@@ -363,6 +393,17 @@ header h1 {
 
 .filter-drawer .filter-rule-row .el-button.is-circle {
     flex-shrink: 0;
+}
+
+@media (max-width: 600px) {
+    .filter-drawer .filter-rule-row .el-input,
+    .filter-drawer .filter-rule-row .el-select {
+        width: 100% !important;
+    }
+
+    .filter-drawer .filter-rule-row .el-button.is-circle {
+        margin-left: auto;
+    }
 }
 
 /* 过滤器/配置帮助说明 */
@@ -396,15 +437,63 @@ header h1 {
     word-break: break-word;
 }
 
-/* 日志详情侧边栏样式 */
-.log-detail-drawer .el-drawer__body {
-    padding: 24px;
-    background-color: #fafafa;
+/* Drawer 容器样式优化 */
+.config-drawer .el-drawer__body,
+.filter-drawer .el-drawer__body,
+.usage-drawer .el-drawer__body,
+.realtime-detail-drawer .el-drawer__body,
+.mapping-drawer .el-drawer__body,
+.log-detail-drawer .el-drawer__body,
+.all-logs-drawer .el-drawer__body {
+    padding: var(--drawer-padding);
+    background: var(--drawer-bg);
+    display: flex;
+    flex-direction: column;
+    gap: clamp(12px, 2vw, 20px);
 }
 
+.config-drawer .config-content,
+.filter-drawer .config-content,
+.usage-drawer .usage-drawer-content,
+.realtime-detail-drawer .realtime-detail-content,
+.mapping-drawer .mapping-drawer-content,
+.log-detail-drawer .log-detail-content,
+.all-logs-drawer .all-logs-content {
+    flex: 1;
+    overflow-y: auto;
+    background: var(--drawer-card-bg);
+    border-radius: 16px;
+    padding: clamp(16px, 2vw, 24px);
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+.config-drawer .config-content,
+.filter-drawer .config-content,
+.usage-drawer .usage-drawer-content,
+.realtime-detail-drawer .realtime-detail-content,
+.mapping-drawer .mapping-drawer-content,
+.log-detail-drawer .log-detail-content,
+.all-logs-drawer .all-logs-content {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(16px, 2vw, 24px);
+}
+
+.config-content .tab-panel,
+.filter-drawer .tab-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(14px, 2vw, 20px);
+}
+
+/* 日志详情侧边栏样式 */
 .log-detail-drawer .log-detail-content {
     height: 100%;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(12px, 2vw, 20px);
 }
 
 .log-detail-tabs .el-tabs__header {
@@ -418,8 +507,9 @@ header h1 {
 }
 
 .log-detail-tabs .el-tabs__content {
-    height: calc(100vh - 160px);
+    flex: 1;
     overflow-y: auto;
+    max-height: calc(100vh - 240px);
 }
 
 .detail-section {
@@ -534,15 +624,10 @@ header h1 {
     border: 1px solid #ebeef5;
 }
 
-.usage-drawer .el-drawer__body {
-    padding: 20px;
-    background: #f7f9fb;
-}
-
 .usage-drawer-content {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: clamp(16px, 2vw, 24px);
 }
 
 .usage-summary-card {
@@ -798,18 +883,20 @@ header h1 {
 
 /* 保留原有的请求体样式，用于兼容性 */
 .request-body-section-fullscreen {
-    height: calc(100vh - 150px);
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     margin: 0;
-    padding: 20px;
+    padding: clamp(16px, 2vw, 24px);
     background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
 }
 
 .request-body-section {
-    height: calc(100vh - 200px);
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
 }
@@ -837,8 +924,7 @@ header h1 {
 
 /* 所有日志侧边栏样式 */
 .all-logs-drawer .el-drawer__body {
-    padding: 24px;
-    background-color: #fafafa;
+    gap: clamp(12px, 2vw, 20px);
 }
 
 .all-logs-content {
@@ -846,6 +932,7 @@ header h1 {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    gap: clamp(12px, 1.6vw, 18px);
 }
 
 .history-requests-section {
@@ -884,7 +971,7 @@ header h1 {
 }
 
 .all-log-entries {
-    height: calc(100vh - 220px);
+    flex: 1;
     overflow-y: auto;
 }
 
@@ -2256,6 +2343,68 @@ header h1 {
 
     .dialog-entry-row > * {
         flex: 1 1 100%;
+        width: 100% !important;
         margin-bottom: 8px;
+    }
+
+    .dialog-entry-row > .el-switch,
+    .dialog-entry-row > .el-button {
+        width: auto !important;
+        align-self: flex-start;
+    }
+
+    .dialog-entry-row > .el-button {
+        align-self: flex-end;
+    }
+}
+
+@media (max-width: 768px) {
+    .container {
+        padding: 16px 12px;
+    }
+
+    header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .detail-section {
+        padding: 16px;
+    }
+
+    .log-detail-tabs .el-tab-pane:not([name="body"]) {
+        padding: 16px;
+    }
+
+    .log-detail-tabs .el-tabs__content {
+        max-height: none;
+    }
+
+    .all-logs-stats {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .stats-actions {
+        width: 100%;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+
+}
+
+@media (max-width: 600px) {
+    .config-tabs {
+        flex-wrap: wrap;
+    }
+
+    .config-tabs .el-button {
+        flex: 1 1 45%;
+    }
+
+    .usage-summary-grid {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     }
 }
