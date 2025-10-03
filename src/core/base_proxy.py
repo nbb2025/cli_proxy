@@ -22,6 +22,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from ..utils.usage_parser import (
     extract_usage_from_response,
     normalize_usage_record,
+    empty_metrics,
+    merge_usage_metrics,
 )
 from ..utils.platform_helper import create_detached_process
 from .realtime_hub import RealTimeRequestHub
@@ -211,6 +213,75 @@ class BaseProxyService(ABC):
 
         await asyncio.to_thread(_write_log)
 
+    def _save_discarded_logs_usage(self, discarded_logs: list[dict]) -> None:
+        """将被丢弃的日志的usage数据保存到历史记录"""
+        if not discarded_logs:
+            return
+
+        try:
+            # 聚合被丢弃日志的usage数据
+            aggregated: Dict[str, Dict[str, Dict[str, int]]] = {}
+            for entry in discarded_logs:
+                usage = entry.get('usage', {})
+                metrics = usage.get('metrics', {})
+                if not metrics:
+                    continue
+
+                service = usage.get('service') or entry.get('service') or 'unknown'
+                channel = entry.get('channel') or 'unknown'
+
+                service_bucket = aggregated.setdefault(service, {})
+                channel_bucket = service_bucket.setdefault(channel, empty_metrics())
+                merge_usage_metrics(channel_bucket, metrics)
+
+            if not aggregated:
+                return
+
+            # 加载现有历史记录
+            history_file = self.data_dir / 'history_usage.json'
+            history_usage: Dict[str, Dict[str, Dict[str, int]]] = {}
+
+            if history_file.exists():
+                try:
+                    with open(history_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+
+                    # 规范化历史数据
+                    for service, channels in (data or {}).items():
+                        if not isinstance(channels, dict):
+                            continue
+                        service_bucket: Dict[str, Dict[str, int]] = {}
+                        for channel, metrics in channels.items():
+                            normalized = empty_metrics()
+                            if isinstance(metrics, dict):
+                                merge_usage_metrics(normalized, metrics)
+                            service_bucket[channel] = normalized
+                        history_usage[service] = service_bucket
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+            # 合并聚合的usage到历史记录
+            for service, channels in aggregated.items():
+                service_bucket = history_usage.setdefault(service, {})
+                for channel, metrics in channels.items():
+                    channel_bucket = service_bucket.setdefault(channel, empty_metrics())
+                    merge_usage_metrics(channel_bucket, metrics)
+
+            # 保存更新后的历史记录
+            serializable = {
+                service: {
+                    channel: {key: int(value) for key, value in metrics.items()}
+                    for channel, metrics in channels.items()
+                }
+                for service, channels in history_usage.items()
+            }
+
+            with open(history_file, 'w', encoding='utf-8') as f:
+                json.dump(serializable, f, ensure_ascii=False, indent=2)
+
+        except Exception as exc:
+            print(f"保存被丢弃日志的usage失败: {exc}")
+
     def _maintain_log_limit(self, new_log_entry: dict):
         """维护日志文件条数限制，只保留最近的max_logs条记录"""
         try:
@@ -243,6 +314,10 @@ class BaseProxyService(ABC):
 
             # 只保留最近的max_logs条记录
             if len(existing_logs) > max_logs:
+                # 保存即将被丢弃的日志的usage数据到历史记录
+                discarded_logs = existing_logs[:-max_logs]
+                self._save_discarded_logs_usage(discarded_logs)
+
                 existing_logs = existing_logs[-max_logs:]
             
             # 重写整个日志文件
