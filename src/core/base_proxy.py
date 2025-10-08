@@ -649,7 +649,7 @@ class BaseProxyService(ABC):
             target_url = f"{target_url}?{raw_query}"
 
         # 处理headers，排除会被重新设置的头
-        excluded_headers = {'authorization', 'host', 'content-length'}
+        excluded_headers = {'x-api-key', 'authorization', 'host', 'content-length'}
         headers = {k: v for k, v in request.headers.items() if k.lower() not in excluded_headers}
         headers['host'] = urlsplit(target_url).netloc
         headers.setdefault('connection', 'keep-alive')

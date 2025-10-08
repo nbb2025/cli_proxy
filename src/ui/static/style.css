@@ -833,15 +833,13 @@ header h1 {
 
 /* 请求体样式 - 真正的全屏模式 */
 .request-body-fullscreen-container {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    position: relative;
     display: flex;
     flex-direction: column;
+    flex: 1;
     padding: 16px;
     background: white;
+    min-height: clamp(280px, 50vh, 560px);
 }
 
 .request-body-fullscreen-container .body-actions {
@@ -865,7 +863,7 @@ header h1 {
     border: 1px solid #e1e4e8;
     resize: none;
     height: 100% !important;
-    min-height: 100% !important;
+    min-height: clamp(260px, 48vh, 580px) !important;
     box-sizing: border-box;
 }
 
