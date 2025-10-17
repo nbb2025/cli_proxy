@@ -238,12 +238,15 @@ def custom_filter(data: bytes) -> bytes:
 - 使用量统计和分析
 - Web UI可视化监控
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=guojinpeng/cli_proxy&type=Date)](https://www.star-history.com/#guojinpeng/cli_proxy&Date)
+
 ## 许可证
 
 MIT License
 
 ## 作者
-
 gjp
 ---
 
